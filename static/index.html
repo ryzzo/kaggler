@@ -9,140 +9,104 @@
 
     body {
       font-family: system-ui, sans-serif;
-      background: #0f1117;
-      color: #e2e8f0;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 48px 16px;
+      background: #0f1117; color: #e2e8f0;
+      min-height: 100vh; display: flex; flex-direction: column;
+      align-items: center; padding: 48px 16px;
     }
 
     h1 { font-size: 1.75rem; font-weight: 700; margin-bottom: 8px; }
-    p.subtitle { color: #94a3b8; margin-bottom: 32px; font-size: 0.95rem; }
+    p.subtitle { color: #94a3b8; margin-bottom: 32px; font-size: .95rem; }
 
     #drop-zone {
-      width: 100%;
-      max-width: 560px;
-      border: 2px dashed #334155;
-      border-radius: 16px;
-      padding: 56px 32px;
-      text-align: center;
-      cursor: pointer;
-      transition: border-color 0.2s, background 0.2s;
-      background: #1e2430;
+      width: 100%; max-width: 600px;
+      border: 2px dashed #334155; border-radius: 16px;
+      padding: 56px 32px; text-align: center; cursor: pointer;
+      transition: border-color .2s, background .2s; background: #1e2430;
     }
-
-    #drop-zone.over {
-      border-color: #6366f1;
-      background: #1e2430cc;
-    }
-
+    #drop-zone.over { border-color: #6366f1; background: #1e2430cc; }
     #drop-zone svg { width: 48px; height: 48px; color: #475569; margin-bottom: 16px; }
-    #drop-zone p { color: #94a3b8; font-size: 0.95rem; }
-    #drop-zone span { color: #6366f1; font-weight: 600; cursor: pointer; }
-    #drop-zone span:hover { text-decoration: underline; }
-
+    #drop-zone p { color: #94a3b8; font-size: .95rem; }
+    #drop-zone .browse { color: #6366f1; font-weight: 600; cursor: pointer; }
+    #drop-zone .browse:hover { text-decoration: underline; }
     #file-input { display: none; }
 
-    #results {
-      width: 100%;
-      max-width: 560px;
-      margin-top: 32px;
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-    }
+    #results { width: 100%; max-width: 600px; margin-top: 32px; display: flex; flex-direction: column; gap: 16px; }
 
     .result-card {
-      background: #1e2430;
-      border-radius: 12px;
-      padding: 20px;
-      border: 1px solid #2d3748;
-      animation: slide-in 0.2s ease;
+      background: #1e2430; border-radius: 12px; padding: 20px;
+      border: 1px solid #2d3748; animation: slide-in .2s ease;
     }
+    @keyframes slide-in { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
 
-    @keyframes slide-in {
-      from { opacity: 0; transform: translateY(8px); }
-      to   { opacity: 1; transform: translateY(0); }
-    }
-
-    .result-card .card-header {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-bottom: 14px;
-    }
+    .card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
 
     .badge {
-      font-size: 0.7rem;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      padding: 2px 8px;
-      border-radius: 999px;
+      font-size: .7rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .05em; padding: 2px 8px; border-radius: 999px; flex-shrink: 0;
     }
-
     .badge-csv   { background: #064e3b; color: #6ee7b7; }
     .badge-image { background: #1e3a5f; color: #93c5fd; }
     .badge-text  { background: #3b1f5e; color: #c4b5fd; }
     .badge-bin   { background: #3b2a1a; color: #fbbf24; }
     .badge-error { background: #4c1515; color: #fca5a5; }
 
-    .filename {
-      font-weight: 600;
-      font-size: 0.95rem;
-      flex: 1;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
+    .filename { font-weight: 600; font-size: .95rem; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-    .meta-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 8px;
-    }
-
-    .meta-item { font-size: 0.82rem; }
+    .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .meta-item { font-size: .82rem; }
     .meta-item .label { color: #64748b; margin-bottom: 2px; }
     .meta-item .value { color: #cbd5e1; font-weight: 500; }
 
     .preview-block {
-      margin-top: 12px;
-      background: #111827;
-      border-radius: 8px;
-      padding: 12px;
-      font-size: 0.78rem;
-      font-family: monospace;
-      color: #94a3b8;
-      overflow-x: auto;
-      white-space: pre;
-      max-height: 180px;
-      overflow-y: auto;
+      margin-top: 12px; background: #111827; border-radius: 8px; padding: 12px;
+      font-size: .78rem; font-family: monospace; color: #94a3b8;
+      overflow-x: auto; white-space: pre; max-height: 160px; overflow-y: auto;
     }
 
+    /* column selector */
+    .col-selector { margin-top: 16px; border-top: 1px solid #2d3748; padding-top: 16px; }
+    .col-selector h3 { font-size: .82rem; font-weight: 600; color: #94a3b8; margin-bottom: 10px; text-transform: uppercase; letter-spacing: .05em; }
+    .selector-legend { display: flex; gap: 16px; margin-bottom: 10px; font-size: .78rem; color: #64748b; }
+    .selector-legend span { display: flex; align-items: center; gap: 5px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; }
+    .dot-feat { background: #6366f1; } .dot-label { background: #10b981; }
+
+    .mode-toggle { display: flex; border: 1px solid #2d3748; border-radius: 8px; overflow: hidden; font-size: .8rem; margin-bottom: 10px; }
+    .mode-btn { flex: 1; padding: 6px; text-align: center; cursor: pointer; color: #64748b; background: #111827; transition: background .15s, color .15s; }
+    .mode-btn.active { background: #1e1b4b; color: #a5b4fc; font-weight: 600; }
+
+    .col-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 6px; margin-bottom: 14px; }
+    .col-pill {
+      display: flex; align-items: center; gap: 6px;
+      background: #111827; border: 1px solid #2d3748; border-radius: 8px;
+      padding: 6px 10px; font-size: .8rem; cursor: pointer;
+      transition: border-color .15s, background .15s; user-select: none;
+    }
+    .col-pill:hover { border-color: #475569; }
+    .col-pill.feat-selected  { border-color: #6366f1; background: #1e1b4b; color: #a5b4fc; }
+    .col-pill.label-selected { border-color: #10b981; background: #064e3b; color: #6ee7b7; }
+    .col-pill.label-pill input[type=radio] { accent-color: #10b981; }
+    .col-pill input { accent-color: #6366f1; flex-shrink: 0; }
+
+    .submit-btn {
+      width: 100%; padding: 10px; background: #6366f1; color: #fff;
+      border: none; border-radius: 8px; font-size: .9rem; font-weight: 600;
+      cursor: pointer; transition: background .15s;
+    }
+    .submit-btn:hover { background: #4f46e5; }
+    .submit-btn:disabled { background: #334155; color: #64748b; cursor: not-allowed; }
+
     .spinner {
-      display: inline-block;
-      width: 14px; height: 14px;
-      border: 2px solid #334155;
-      border-top-color: #6366f1;
-      border-radius: 50%;
-      animation: spin 0.6s linear infinite;
-      flex-shrink: 0;
+      display: inline-block; width: 14px; height: 14px;
+      border: 2px solid #334155; border-top-color: #6366f1;
+      border-radius: 50%; animation: spin .6s linear infinite; flex-shrink: 0;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
     #clear-btn {
-      margin-top: 4px;
-      background: none;
-      border: 1px solid #334155;
-      color: #94a3b8;
-      border-radius: 8px;
-      padding: 6px 16px;
-      font-size: 0.82rem;
-      cursor: pointer;
-      align-self: flex-end;
+      margin-top: 4px; background: none; border: 1px solid #334155;
+      color: #94a3b8; border-radius: 8px; padding: 6px 16px;
+      font-size: .82rem; cursor: pointer; align-self: flex-end;
     }
     #clear-btn:hover { border-color: #6366f1; color: #e2e8f0; }
   </style>
@@ -156,43 +120,43 @@
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
         d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/>
     </svg>
-    <p>Drag &amp; drop files here, or <span id="browse-link">browse</span></p>
-    <p style="margin-top:8px;font-size:0.8rem;color:#475569;">CSV · PNG · JPG · GIF · TXT · MD and more</p>
+    <p>Drag &amp; drop files here, or <span class="browse" id="browse-link">browse</span></p>
+    <p style="margin-top:8px;font-size:.8rem;color:#475569;">CSV · PNG · JPG · GIF · TXT · MD and more</p>
     <input type="file" id="file-input" multiple />
   </div>
 
   <div id="results"></div>
 
   <script>
-    const dropZone   = document.getElementById('drop-zone');
-    const fileInput  = document.getElementById('file-input');
-    const browseLink = document.getElementById('browse-link');
-    const results    = document.getElementById('results');
+    const dropZone  = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+    const results   = document.getElementById('results');
 
-    browseLink.addEventListener('click', () => fileInput.click());
-    dropZone.addEventListener('click', e => { if (e.target !== browseLink) fileInput.click(); });
-    fileInput.addEventListener('change', () => handleFiles(fileInput.files));
-
+    document.getElementById('browse-link').addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('click', e => { if (!e.target.classList.contains('browse')) fileInput.click(); });
+    fileInput.addEventListener('change', () => { handleFiles(fileInput.files); fileInput.value = ''; });
     dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('over'); });
     dropZone.addEventListener('dragleave', () => dropZone.classList.remove('over'));
-    dropZone.addEventListener('drop', e => {
-      e.preventDefault();
-      dropZone.classList.remove('over');
-      handleFiles(e.dataTransfer.files);
-    });
+    dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('over'); handleFiles(e.dataTransfer.files); });
 
-    function handleFiles(files) {
-      [...files].forEach(uploadFile);
+    function handleFiles(files) { [...files].forEach(uploadFile); }
+
+    function escHtml(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+    function fmt(b) {
+      if (b < 1024) return b + ' B';
+      if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+      return (b/1048576).toFixed(1) + ' MB';
     }
 
-    function badgeClass(type) {
-      return { csv: 'badge-csv', image: 'badge-image', text: 'badge-text', binary: 'badge-bin' }[type] ?? 'badge-bin';
-    }
-
-    function fmt(bytes) {
-      if (bytes < 1024) return bytes + ' B';
-      if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
-      return (bytes / 1048576).toFixed(1) + ' MB';
+    function ensureClearBtn() {
+      if (!document.getElementById('clear-btn')) {
+        const btn = document.createElement('button');
+        btn.id = 'clear-btn'; btn.textContent = 'Clear results';
+        btn.onclick = () => { results.innerHTML = ''; };
+        results.appendChild(btn);
+      }
     }
 
     function buildCard(file) {
@@ -201,22 +165,12 @@
       card.innerHTML = `
         <div class="card-header">
           <div class="spinner"></div>
-          <span class="filename">${file.name}</span>
-          <span style="font-size:0.8rem;color:#64748b;">${fmt(file.size)}</span>
+          <span class="filename">${escHtml(file.name)}</span>
+          <span style="font-size:.8rem;color:#64748b">${fmt(file.size)}</span>
         </div>
-        <div class="body" style="color:#64748b;font-size:0.85rem;">Uploading…</div>
-      `;
+        <div class="body" style="color:#64748b;font-size:.85rem">Uploading…</div>`;
       results.prepend(card);
-
-      // add clear button if not present
-      if (!document.getElementById('clear-btn')) {
-        const btn = document.createElement('button');
-        btn.id = 'clear-btn';
-        btn.textContent = 'Clear results';
-        btn.onclick = () => { results.innerHTML = ''; };
-        results.appendChild(btn);
-      }
-
+      ensureClearBtn();
       return card;
     }
 
@@ -224,54 +178,141 @@
       const p = data.processing;
       const header = card.querySelector('.card-header');
       header.querySelector('.spinner').remove();
-
+      const typeMap = { csv:'badge-csv', image:'badge-image', text:'badge-text', binary:'badge-bin' };
       const badge = document.createElement('span');
-      badge.className = `badge ${badgeClass(p.type)}`;
+      badge.className = `badge ${typeMap[p.type] ?? 'badge-bin'}`;
       badge.textContent = p.type;
       header.insertBefore(badge, header.firstChild);
 
       let metaHTML = '';
       if (p.type === 'csv') {
+        const preview = p.preview.map(r => Object.values(r).join('\t')).join('\n');
         metaHTML = `
           <div class="meta-item"><div class="label">Rows</div><div class="value">${p.row_count}</div></div>
           <div class="meta-item"><div class="label">Columns</div><div class="value">${p.columns.length}</div></div>
-          <div class="meta-item" style="grid-column:1/-1"><div class="label">Columns</div><div class="value">${p.columns.join(', ')}</div></div>
-        `;
-        const preview = p.preview.map(r => Object.values(r).join('\t')).join('\n');
-        metaHTML += `<div style="grid-column:1/-1"><div class="preview-block">${escHtml(p.columns.join('\t'))}\n${escHtml(preview)}</div></div>`;
+          <div class="meta-item" style="grid-column:1/-1"><div class="label">Column names</div><div class="value">${escHtml(p.columns.join(', '))}</div></div>
+          <div style="grid-column:1/-1"><div class="preview-block">${escHtml(p.columns.join('\t'))}\n${escHtml(preview)}</div></div>`;
       } else if (p.type === 'image') {
         metaHTML = `
-          <div class="meta-item"><div class="label">Format</div><div class="value">${p.format}</div></div>
-          <div class="meta-item"><div class="label">Mode</div><div class="value">${p.mode}</div></div>
+          <div class="meta-item"><div class="label">Format</div><div class="value">${escHtml(p.format)}</div></div>
+          <div class="meta-item"><div class="label">Mode</div><div class="value">${escHtml(p.mode)}</div></div>
           <div class="meta-item"><div class="label">Width</div><div class="value">${p.size.width}px</div></div>
-          <div class="meta-item"><div class="label">Height</div><div class="value">${p.size.height}px</div></div>
-        `;
+          <div class="meta-item"><div class="label">Height</div><div class="value">${p.size.height}px</div></div>`;
       } else if (p.type === 'text') {
         metaHTML = `
           <div class="meta-item"><div class="label">Lines</div><div class="value">${p.line_count}</div></div>
           <div class="meta-item"><div class="label">Words</div><div class="value">${p.word_count}</div></div>
           <div class="meta-item"><div class="label">Chars</div><div class="value">${p.char_count}</div></div>
-          <div style="grid-column:1/-1"><div class="preview-block">${escHtml(p.preview)}</div></div>
-        `;
+          <div style="grid-column:1/-1"><div class="preview-block">${escHtml(p.preview)}</div></div>`;
       } else {
         metaHTML = `<div class="meta-item"><div class="label">Size</div><div class="value">${fmt(p.size_bytes ?? data.size_bytes)}</div></div>`;
       }
-
       card.querySelector('.body').innerHTML = `<div class="meta-grid">${metaHTML}</div>`;
+      if (p.type === 'csv') renderColumnSelector(card, data);
     }
 
     function renderError(card, msg) {
       const header = card.querySelector('.card-header');
       header.querySelector('.spinner').remove();
       const badge = document.createElement('span');
-      badge.className = 'badge badge-error';
-      badge.textContent = 'error';
+      badge.className = 'badge badge-error'; badge.textContent = 'error';
       header.insertBefore(badge, header.firstChild);
-      card.querySelector('.body').innerHTML = `<div style="color:#fca5a5;font-size:0.85rem;">${escHtml(msg)}</div>`;
+      card.querySelector('.body').innerHTML = `<div style="color:#fca5a5;font-size:.85rem">${escHtml(msg)}</div>`;
     }
 
-    function escHtml(s) {
-      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    function renderColumnSelector(card, data) {
+      const cols = data.processing.columns;
+      const fileId = data.file_id;
+      let mode = 'features';
+      const selectedFeatures = new Set(cols);
+      let selectedLabel = cols[cols.length - 1] ?? '';
+
+      const wrap = document.createElement('div');
+      wrap.className = 'col-selector';
+      wrap.innerHTML = `
+        <h3>Select columns</h3>
+        <div class="selector-legend">
+          <span><span class="dot dot-feat"></span>Features (X)</span>
+          <span><span class="dot dot-label"></span>Label (y)</span>
+        </div>
+        <div class="mode-toggle">
+          <div class="mode-btn active" data-m="features">Features</div>
+          <div class="mode-btn" data-m="label">Label</div>
+        </div>
+        <div class="col-grid"></div>
+        <button class="submit-btn" disabled>Analyse</button>`;
+
+      const grid = wrap.querySelector('.col-grid');
+      const submitBtn = wrap.querySelector('.submit-btn');
+
+      function renderPills() {
+        grid.innerHTML = '';
+        cols.forEach(col => {
+          const isFeat  = selectedFeatures.has(col);
+          const isLabel = col === selectedLabel;
+          const pill = document.createElement('label');
+          pill.className = 'col-pill' +
+            (mode === 'features' && isFeat  ? ' feat-selected'  : '') +
+            (mode === 'label'   && isLabel  ? ' label-selected' : '') +
+            (mode === 'label'               ? ' label-pill'     : '');
+          if (mode === 'features') {
+            pill.innerHTML = `<input type="checkbox" ${isFeat?'checked':''}><span>${escHtml(col)}</span>`;
+            pill.querySelector('input').addEventListener('change', e => {
+              e.target.checked ? selectedFeatures.add(col) : selectedFeatures.delete(col);
+              pill.classList.toggle('feat-selected', e.target.checked);
+              updateBtn();
+            });
+          } else {
+            pill.innerHTML = `<input type="radio" name="lbl_${fileId}" value="${escHtml(col)}" ${isLabel?'checked':''}><span>${escHtml(col)}</span>`;
+            pill.querySelector('input').addEventListener('change', () => { selectedLabel = col; renderPills(); });
+          }
+          grid.appendChild(pill);
+        });
+      }
+
+      function updateBtn() {
+        const featCount = [...selectedFeatures].filter(f => f !== selectedLabel).length;
+        const ok = featCount > 0 && !!selectedLabel;
+        submitBtn.disabled = !ok;
+        submitBtn.textContent = ok
+          ? `Analyse — ${featCount} feature${featCount!==1?'s':''}, label: ${selectedLabel}`
+          : 'Analyse';
+      }
+
+      wrap.querySelectorAll('.mode-btn').forEach(b => {
+        b.addEventListener('click', () => {
+          mode = b.dataset.m;
+          wrap.querySelectorAll('.mode-btn').forEach(x => x.classList.toggle('active', x===b));
+          renderPills(); updateBtn();
+        });
+      });
+
+      submitBtn.addEventListener('click', async () => {
+        const features = [...selectedFeatures].filter(f => f !== selectedLabel);
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Analysing…';
+        try {
+          const res  = await fetch('/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ file_id: fileId, features, label: selectedLabel }),
+          });
+          const result = await res.json();
+          if (!res.ok) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = result.detail ?? 'Error — retry';
+            return;
+          }
+          sessionStorage.setItem('analysisData', JSON.stringify(result));
+          window.location.href = '/analysis';
+        } catch (err) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Network error — retry';
+        }
+      });
+
+      renderPills(); updateBtn();
+      card.querySelector('.body').appendChild(wrap);
     }
 
     async function uploadFile(file) {
@@ -279,7 +320,7 @@
       const form = new FormData();
       form.append('file', file);
       try {
-        const res  = await fetch('/upload', { method: 'POST', body: form });
+        const res  = await fetch('/upload', { method:'POST', body:form });
         const data = await res.json();
         if (!res.ok) renderError(card, data.detail ?? 'Upload failed');
         else         renderResult(card, data);

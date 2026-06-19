@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Analysis</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, sans-serif;
+      background: #0f1117; color: #e2e8f0;
+      min-height: 100vh; padding: 40px 24px;
+      max-width: 900px; margin: 0 auto;
+    }
+
+    .top-bar {
+      display: flex; align-items: center; gap: 16px; margin-bottom: 32px;
+    }
+    .back-btn {
+      display: flex; align-items: center; gap: 6px;
+      background: none; border: 1px solid #334155; color: #94a3b8;
+      border-radius: 8px; padding: 6px 14px; font-size: .85rem;
+      cursor: pointer; text-decoration: none; transition: border-color .15s, color .15s;
+    }
+    .back-btn:hover { border-color: #6366f1; color: #e2e8f0; }
+    .back-btn svg { width: 14px; height: 14px; }
+
+    h1 { font-size: 1.5rem; font-weight: 700; }
+    .subtitle { color: #64748b; font-size: .85rem; margin-top: 2px; }
+
+    .summary-pills { display: flex; flex-wrap: wrap; gap: 8px; margin: 20px 0 32px; }
+    .pill {
+      font-size: .78rem; padding: 4px 12px; border-radius: 999px;
+      border: 1px solid; display: flex; align-items: center; gap: 5px;
+    }
+    .pill-feat  { background: #1e1b4b; color: #a5b4fc; border-color: #3730a3; }
+    .pill-label { background: #064e3b; color: #6ee7b7; border-color: #065f46; }
+    .pill .pill-role { font-weight: 700; opacity: .6; font-size: .68rem; text-transform: uppercase; letter-spacing: .04em; }
+
+    .section-title {
+      font-size: .72rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .07em; color: #475569; margin: 32px 0 12px;
+      padding-bottom: 8px; border-bottom: 1px solid #1e2430;
+    }
+
+    /* stat row */
+    .stat-strip {
+      display: flex; gap: 0; background: #111827; border-radius: 10px;
+      overflow: hidden; margin-bottom: 20px; border: 1px solid #1e2430;
+    }
+    .stat-cell { flex: 1; padding: 12px 14px; text-align: center; border-right: 1px solid #1e2430; }
+    .stat-cell:last-child { border-right: none; }
+    .stat-cell .sv { font-size: 1rem; font-weight: 700; color: #e2e8f0; }
+    .stat-cell .sk { font-size: .68rem; color: #64748b; text-transform: uppercase; letter-spacing: .05em; margin-top: 2px; }
+
+    /* charts */
+    .chart-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+    .chart-card { background: #111827; border-radius: 12px; padding: 18px; border: 1px solid #1e2430; }
+    .chart-card .chart-title { font-size: .82rem; font-weight: 600; color: #cbd5e1; margin-bottom: 12px; }
+    .chart-card .chart-sub   { font-size: .72rem; color: #64748b; margin-bottom: 10px; }
+    .chart-card canvas { width: 100% !important; }
+
+    /* correlation */
+    .corr-list { display: flex; flex-direction: column; gap: 8px; }
+    .corr-row { display: flex; align-items: center; gap: 10px; }
+    .corr-name { width: 140px; flex-shrink: 0; font-size: .8rem; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .corr-track { flex: 1; background: #1e2430; border-radius: 4px; height: 12px; overflow: hidden; position: relative; }
+    .corr-bar { height: 100%; border-radius: 4px; transition: width .5s; }
+    .corr-val { width: 52px; text-align: right; font-size: .8rem; color: #cbd5e1; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+
+    /* value counts */
+    .vc-list { display: flex; flex-direction: column; gap: 6px; }
+    .vc-row { display: flex; align-items: center; gap: 8px; }
+    .vc-name { width: 110px; flex-shrink: 0; font-size: .78rem; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .vc-track { flex: 1; background: #1e2430; border-radius: 4px; height: 9px; overflow: hidden; }
+    .vc-bar { height: 100%; border-radius: 4px; }
+    .vc-count { width: 40px; text-align: right; font-size: .75rem; color: #64748b; flex-shrink: 0; }
+
+    #error-msg { color: #fca5a5; font-size: .95rem; padding: 40px 0; text-align: center; }
+
+    /* heatmap */
+    .heatmap-wrap { background: #111827; border-radius: 12px; padding: 20px; border: 1px solid #1e2030; overflow-x: auto; }
+    .heatmap-canvas-wrap { display: inline-block; }
+  </style>
+</head>
+<body>
+  <div class="top-bar">
+    <a href="/" class="back-btn">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+      </svg>
+      Back
+    </a>
+    <div>
+      <h1>Data Analysis</h1>
+      <div class="subtitle" id="subtitle"></div>
+    </div>
+  </div>
+
+  <div id="content"><div id="error-msg" style="display:none"></div></div>
+
+  <script>
+    function escHtml(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+    function round4(n) { return Math.round(n * 10000) / 10000; }
+
+    const raw = sessionStorage.getItem('analysisData');
+    if (!raw) {
+      document.getElementById('error-msg').style.display = '';
+      document.getElementById('error-msg').textContent = 'No analysis data found. Go back and submit a file first.';
+    } else {
+      render(JSON.parse(raw));
+    }
+
+    function render(data) {
+      document.getElementById('subtitle').textContent =
+        `${data.row_count} rows · ${data.features.length} feature${data.features.length!==1?'s':''} · label: ${data.label.name}`;
+
+      const content = document.getElementById('content');
+
+      // summary pills
+      const pills = document.createElement('div');
+      pills.className = 'summary-pills';
+      pills.innerHTML = `<span class="pill pill-label"><span class="pill-role">label</span>${escHtml(data.label.name)}</span>` +
+        data.features.map(f => `<span class="pill pill-feat"><span class="pill-role">feat</span>${escHtml(f)}</span>`).join('');
+      content.appendChild(pills);
+
+      // ── Label ──
+      content.appendChild(sectionTitle('Label — ' + data.label.name));
+      renderColDetail(content, data.label, true);
+
+      // ── Correlation heatmap ──
+      const cm = data.correlation_matrix;
+      if (cm && cm.columns.length > 1) {
+        content.appendChild(sectionTitle('Feature correlation heatmap'));
+        const wrap = document.createElement('div');
+        wrap.className = 'heatmap-wrap';
+        content.appendChild(wrap);
+        drawHeatmap(wrap, cm.columns, cm.values);
+      }
+
+      // ── Correlation (numeric features only) ──
+      const corrPairs = data.features
+        .filter(f => data.feature_analysis[f]?.correlation_with_label != null)
+        .map(f => ({ name: f, corr: data.feature_analysis[f].correlation_with_label }))
+        .sort((a, b) => Math.abs(b.corr) - Math.abs(a.corr));
+
+      if (corrPairs.length > 0) {
+        content.appendChild(sectionTitle('Feature correlation with label'));
+        const corrList = document.createElement('div');
+        corrList.className = 'corr-list';
+        corrPairs.forEach(({ name, corr }) => {
+          const pct = (Math.abs(corr) * 100).toFixed(1);
+          const color = corr >= 0 ? '#6366f1' : '#f43f5e';
+          const row = document.createElement('div');
+          row.className = 'corr-row';
+          row.innerHTML = `
+            <span class="corr-name" title="${escHtml(name)}">${escHtml(name)}</span>
+            <div class="corr-track"><div class="corr-bar" style="width:${pct}%;background:${color}"></div></div>
+            <span class="corr-val">${corr >= 0 ? '+' : ''}${corr}</span>`;
+          corrList.appendChild(row);
+        });
+        content.appendChild(corrList);
+      }
+
+      // ── Features ──
+      if (data.features.length > 0) {
+        content.appendChild(sectionTitle('Features'));
+        const grid = document.createElement('div');
+        grid.className = 'chart-grid';
+        data.features.forEach(f => {
+          const card = document.createElement('div');
+          card.className = 'chart-card';
+          card.innerHTML = `<div class="chart-title">${escHtml(f)}</div>`;
+          renderColDetail(card, data.feature_analysis[f], false);
+          grid.appendChild(card);
+        });
+        content.appendChild(grid);
+      }
+    }
+
+    function sectionTitle(text) {
+      const el = document.createElement('div');
+      el.className = 'section-title';
+      el.textContent = text;
+      return el;
+    }
+
+    function drawHeatmap(container, cols, values) {
+      const n = cols.length;
+      const cell = 56;
+      const labelW = 110;
+      const labelH = 80;
+      const W = labelW + n * cell;
+      const H = labelH + n * cell;
+
+      const canvas = document.createElement('canvas');
+      canvas.width  = W;
+      canvas.height = H;
+      canvas.style.display = 'block';
+      container.appendChild(canvas);
+
+      const ctx = canvas.getContext('2d');
+
+      function corrColor(v) {
+        // -1 → red, 0 → dark, +1 → indigo
+        if (v === null) return '#1e2430';
+        const t = (v + 1) / 2; // 0..1
+        const r = Math.round(239 * (1 - t) + 99  * t);
+        const g = Math.round(68  * (1 - t) + 102 * t);
+        const b = Math.round(68  * (1 - t) + 241 * t);
+        return `rgb(${r},${g},${b})`;
+      }
+
+      // column labels (rotated)
+      ctx.save();
+      ctx.font = '11px system-ui, sans-serif';
+      ctx.fillStyle = '#94a3b8';
+      ctx.textAlign = 'left';
+      cols.forEach((col, i) => {
+        const x = labelW + i * cell + cell / 2;
+        ctx.save();
+        ctx.translate(x, labelH - 8);
+        ctx.rotate(-Math.PI / 4);
+        ctx.fillText(col.length > 14 ? col.slice(0, 13) + '…' : col, 0, 0);
+        ctx.restore();
+      });
+      ctx.restore();
+
+      // row labels
+      ctx.font = '11px system-ui, sans-serif';
+      ctx.fillStyle = '#94a3b8';
+      ctx.textAlign = 'right';
+      cols.forEach((col, i) => {
+        const y = labelH + i * cell + cell / 2 + 4;
+        const label = col.length > 14 ? col.slice(0, 13) + '…' : col;
+        ctx.fillText(label, labelW - 6, y);
+      });
+
+      // cells
+      cols.forEach((rowCol, i) => {
+        cols.forEach((colCol, j) => {
+          const v = values[rowCol]?.[colCol] ?? null;
+          const x = labelW + j * cell;
+          const y = labelH + i * cell;
+
+          ctx.fillStyle = corrColor(v);
+          ctx.beginPath();
+          ctx.roundRect(x + 2, y + 2, cell - 4, cell - 4, 4);
+          ctx.fill();
+
+          if (v !== null) {
+            ctx.fillStyle = Math.abs(v) > 0.5 ? '#fff' : '#cbd5e1';
+            ctx.font = 'bold 11px system-ui, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(v.toFixed(2), x + cell / 2, y + cell / 2);
+          }
+        });
+      });
+
+      // colour legend
+      const legX = labelW, legY = H - 0, legW = n * cell, legH = 8;
+      const legendCanvas = document.createElement('canvas');
+      legendCanvas.width  = W;
+      legendCanvas.height = 28;
+      legendCanvas.style.display = 'block';
+      legendCanvas.style.marginTop = '6px';
+      container.appendChild(legendCanvas);
+      const lc = legendCanvas.getContext('2d');
+      const grad = lc.createLinearGradient(legX, 0, legX + legW, 0);
+      grad.addColorStop(0,   'rgb(239,68,68)');
+      grad.addColorStop(0.5, 'rgb(30,36,48)');
+      grad.addColorStop(1,   'rgb(99,102,241)');
+      lc.fillStyle = grad;
+      lc.beginPath();
+      lc.roundRect(legX, 2, legW, legH, 4);
+      lc.fill();
+      lc.font = '10px system-ui, sans-serif';
+      lc.fillStyle = '#64748b';
+      lc.textAlign = 'left';  lc.fillText('-1', legX, legH + 14);
+      lc.textAlign = 'center';lc.fillText('0',  legX + legW / 2, legH + 14);
+      lc.textAlign = 'right'; lc.fillText('+1', legX + legW, legH + 14);
+    }
+
+    function renderColDetail(parent, info, isLabel) {
+      const color = isLabel ? '#10b981' : '#6366f1';
+
+      if (info.kind === 'numeric') {
+        const s = info.stats;
+        // stat strip
+        const strip = document.createElement('div');
+        strip.className = 'stat-strip';
+        [['Mean', s.mean], ['Std', s.std], ['Min', s.min], ['Median', s.median], ['Max', s.max]]
+          .forEach(([k, v]) => {
+            strip.innerHTML += `<div class="stat-cell"><div class="sv">${v}</div><div class="sk">${k}</div></div>`;
+          });
+        parent.appendChild(strip);
+
+        // histogram
+        const canvas = document.createElement('canvas');
+        canvas.height = 140;
+        parent.appendChild(canvas);
+        const h = info.histogram;
+        const labels = h.edges.slice(0,-1).map((v,i) => round4((v + h.edges[i+1]) / 2));
+        new Chart(canvas, {
+          type: 'bar',
+          data: {
+            labels,
+            datasets: [{
+              data: h.counts,
+              backgroundColor: color + '99',
+              borderColor: color,
+              borderWidth: 1,
+              borderRadius: 2,
+            }]
+          },
+          options: {
+            plugins: { legend: { display: false } },
+            scales: {
+              x: { ticks: { color:'#64748b', maxTicksLimit:6, font:{size:10} }, grid:{color:'#1a2030'} },
+              y: { ticks: { color:'#64748b', font:{size:10} }, grid:{color:'#1a2030'} }
+            },
+            animation: { duration: 500 }
+          }
+        });
+      } else {
+        // categorical value counts
+        const vc = info.value_counts;
+        const maxCount = Math.max(...Object.values(vc));
+        const list = document.createElement('div');
+        list.className = 'vc-list';
+        Object.entries(vc).slice(0, 15).forEach(([k, v]) => {
+          const pct = (v / maxCount * 100).toFixed(1);
+          list.innerHTML += `
+            <div class="vc-row">
+              <span class="vc-name" title="${escHtml(k)}">${escHtml(k)}</span>
+              <div class="vc-track"><div class="vc-bar" style="width:${pct}%;background:${color}"></div></div>
+              <span class="vc-count">${v}</span>
+            </div>`;
+        });
+        const sub = document.createElement('div');
+        sub.className = 'chart-sub';
+        sub.textContent = `${info.n_unique} unique value${info.n_unique!==1?'s':''}`;
+        parent.appendChild(sub);
+        parent.appendChild(list);
+      }
+    }
+  </script>
+</body>
+</html>
