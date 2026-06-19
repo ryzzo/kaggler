@@ -266,6 +266,7 @@ def analyze(req: AnalyzeRequest):
             numeric_cols[col] = nums
             feature_analysis[col] = {
                 "kind": "numeric",
+                "n_unique": len(set(nums)),
                 "stats": _stats(nums),
                 "histogram": _histogram(nums),
                 "correlation_with_label": corr,
@@ -281,6 +282,7 @@ def analyze(req: AnalyzeRequest):
     label_info: dict[str, Any] = {"name": req.label}
     if label_nums is not None:
         label_info["kind"] = "numeric"
+        label_info["n_unique"] = len(set(label_nums))
         label_info["stats"] = _stats(label_nums)
         label_info["histogram"] = _histogram(label_nums)
     else:

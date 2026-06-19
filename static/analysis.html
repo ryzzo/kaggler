@@ -11,88 +11,251 @@
     body {
       font-family: system-ui, sans-serif;
       background: #0f1117; color: #e2e8f0;
-      min-height: 100vh; padding: 40px 24px;
-      max-width: 900px; margin: 0 auto;
+      min-height: 100vh; padding: 0 24px 60px;
+      max-width: 1100px; margin: 0 auto;
     }
 
-    .top-bar {
-      display: flex; align-items: center; gap: 16px; margin-bottom: 32px;
+    /* ── Sticky nav ── */
+    .site-nav {
+      position: sticky; top: 0; z-index: 50;
+      background: #0f1117cc;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid #1e2430;
+      display: flex; align-items: center; gap: 4px;
+      padding: 0 4px;
+      margin: 0 -24px 32px;
+      overflow-x: auto;
+      scrollbar-width: none;
     }
-    .back-btn {
-      display: flex; align-items: center; gap: 6px;
-      background: none; border: 1px solid #334155; color: #94a3b8;
-      border-radius: 8px; padding: 6px 14px; font-size: .85rem;
-      cursor: pointer; text-decoration: none; transition: border-color .15s, color .15s;
-    }
-    .back-btn:hover { border-color: #6366f1; color: #e2e8f0; }
-    .back-btn svg { width: 14px; height: 14px; }
+    .site-nav::-webkit-scrollbar { display: none; }
 
+    .nav-back {
+      display: flex; align-items: center; gap: 5px;
+      padding: 12px 14px; font-size: .82rem; color: #64748b;
+      text-decoration: none; white-space: nowrap; border-right: 1px solid #1e2430;
+      transition: color .15s; flex-shrink: 0;
+    }
+    .nav-back:hover { color: #e2e8f0; }
+    .nav-back svg { width: 13px; height: 13px; }
+
+    .nav-item {
+      padding: 12px 14px; font-size: .82rem; color: #64748b;
+      cursor: pointer; white-space: nowrap; border-bottom: 2px solid transparent;
+      transition: color .15s, border-color .15s; flex-shrink: 0; user-select: none;
+      margin-bottom: -1px;
+    }
+    .nav-item:hover  { color: #cbd5e1; }
+    .nav-item.active { color: #a5b4fc; border-bottom-color: #6366f1; }
+
+    .top-bar { display: flex; align-items: center; gap: 16px; margin-bottom: 28px; padding-top: 32px; }
+    .back-btn { display: none; }
     h1 { font-size: 1.5rem; font-weight: 700; }
     .subtitle { color: #64748b; font-size: .85rem; margin-top: 2px; }
 
-    .summary-pills { display: flex; flex-wrap: wrap; gap: 8px; margin: 20px 0 32px; }
-    .pill {
-      font-size: .78rem; padding: 4px 12px; border-radius: 999px;
-      border: 1px solid; display: flex; align-items: center; gap: 5px;
-    }
-    .pill-feat  { background: #1e1b4b; color: #a5b4fc; border-color: #3730a3; }
-    .pill-label { background: #064e3b; color: #6ee7b7; border-color: #065f46; }
-    .pill .pill-role { font-weight: 700; opacity: .6; font-size: .68rem; text-transform: uppercase; letter-spacing: .04em; }
-
     .section-title {
       font-size: .72rem; font-weight: 700; text-transform: uppercase;
-      letter-spacing: .07em; color: #475569; margin: 32px 0 12px;
+      letter-spacing: .07em; color: #475569; margin: 36px 0 14px;
       padding-bottom: 8px; border-bottom: 1px solid #1e2430;
     }
 
-    /* stat row */
-    .stat-strip {
-      display: flex; gap: 0; background: #111827; border-radius: 10px;
-      overflow: hidden; margin-bottom: 20px; border: 1px solid #1e2430;
+    .col-role-badge {
+      font-size: .65rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .05em; padding: 2px 7px; border-radius: 999px; margin-left: 6px;
     }
-    .stat-cell { flex: 1; padding: 12px 14px; text-align: center; border-right: 1px solid #1e2430; }
+    .role-label { background: #064e3b; color: #6ee7b7; }
+    .role-feat  { background: #1e1b4b; color: #a5b4fc; }
+
+    .type-badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: .72rem; font-weight: 600; padding: 2px 8px; border-radius: 6px; flex-shrink: 0;
+    }
+    .type-numeric     { background: #1e3a5f; color: #93c5fd; }
+    .type-categorical { background: #3b1f5e; color: #c4b5fd; }
+
+    /* ── Column overview: two side-by-side panels ── */
+    .col-panels {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      align-items: start;
+    }
+    @media (max-width: 640px) { .col-panels { grid-template-columns: 1fr; } }
+
+    .col-panel {
+      border-radius: 12px;
+      border: 2px dashed #2d3748;
+      overflow: hidden;
+      transition: border-color .2s, background .2s;
+    }
+    .col-panel.numeric-panel     { border-color: #1e3a5f; }
+    .col-panel.categorical-panel { border-color: #2d1b4e; }
+    .col-panel.drag-over         { border-style: solid; border-color: #6366f1; background: #13172a; }
+
+    .panel-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 14px; gap: 8px;
+    }
+    .numeric-panel     .panel-header { background: #0d1520; border-bottom: 1px solid #1e3a5f; }
+    .categorical-panel .panel-header { background: #110d1e; border-bottom: 1px solid #2d1b4e; }
+
+    .panel-title {
+      font-size: .75rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .07em; display: flex; align-items: center; gap: 6px;
+    }
+    .panel-title.numeric     { color: #93c5fd; }
+    .panel-title.categorical { color: #c4b5fd; }
+    .panel-title svg { width: 13px; height: 13px; opacity: .8; }
+
+    .panel-count {
+      font-size: .7rem; font-weight: 700; padding: 1px 8px; border-radius: 999px;
+    }
+    .numeric-panel     .panel-count { background: #1e3a5f; color: #93c5fd; }
+    .categorical-panel .panel-count { background: #3b1f5e; color: #c4b5fd; }
+
+    .panel-body { padding: 6px 8px; min-height: 60px; }
+
+    /* draggable column rows */
+    .col-row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 6px; border-radius: 8px; cursor: grab;
+      transition: background .12s; border: 1px solid transparent;
+      margin-bottom: 2px;
+    }
+    .col-row:last-child { margin-bottom: 0; }
+    .col-row:hover { background: #1a2030; border-color: #2d3748; }
+    .col-row.dragging { opacity: .3; }
+    .col-row-handle { color: #2d3748; flex-shrink: 0; }
+    .col-row-handle svg { width: 12px; height: 12px; display: block; }
+    .col-row-name { font-size: .82rem; font-weight: 600; color: #e2e8f0; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .col-row-unique { font-size: .72rem; color: #475569; flex-shrink: 0; white-space: nowrap; }
+    .col-row-role { flex-shrink: 0; }
+
+    .panel-empty {
+      color: #2d3748; font-size: .78rem; text-align: center;
+      padding: 18px 0; pointer-events: none;
+    }
+
+    .col-row-placeholder {
+      height: 36px; border-radius: 8px;
+      border: 2px dashed #334155; margin-bottom: 2px;
+    }
+
+    /* ── Chart-section drag layout (feature charts) ── */
+    .columns-layout {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start;
+    }
+    @media (max-width: 700px) { .columns-layout { grid-template-columns: 1fr; } }
+
+    .col-lane {
+      border-radius: 14px; border: 2px dashed #2d3748;
+      padding: 16px; min-height: 160px; transition: border-color .2s, background .2s;
+    }
+    .col-lane.numeric-lane     { border-color: #1e3a5f; background: #0d1520; }
+    .col-lane.categorical-lane { border-color: #2d1b4e; background: #110d1e; }
+    .col-lane.drag-over        { border-style: solid; border-color: #6366f1; background: #1a1f35; }
+
+    .lane-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid #1e2430; gap: 8px;
+    }
+    .lane-title {
+      font-size: .8rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .07em; display: flex; align-items: center; gap: 7px;
+    }
+    .lane-title.numeric     { color: #93c5fd; }
+    .lane-title.categorical { color: #c4b5fd; }
+    .lane-title svg { width: 14px; height: 14px; opacity: .7; }
+    .lane-count { font-size: .72rem; font-weight: 700; padding: 2px 9px; border-radius: 999px; }
+    .lane-count.numeric     { background: #1e3a5f; color: #93c5fd; }
+    .lane-count.categorical { background: #3b1f5e; color: #c4b5fd; }
+    .lane-hint {
+      color: #2d3748; font-size: .78rem; text-align: center;
+      padding: 28px 0; pointer-events: none; border: 2px dashed #1e2430;
+      border-radius: 8px; margin-top: 4px;
+    }
+
+    /* ── Draggable feature cards ── */
+    .feat-card {
+      background: #111827;
+      border: 1px solid #1e2030;
+      border-radius: 10px;
+      padding: 14px;
+      margin-bottom: 10px;
+      cursor: grab;
+      transition: border-color .15s, box-shadow .15s, opacity .15s;
+      position: relative;
+    }
+    .feat-card:last-child { margin-bottom: 0; }
+    .feat-card:hover { border-color: #334155; box-shadow: 0 2px 12px #0006; }
+    .feat-card.dragging { opacity: .35; cursor: grabbing; }
+    .feat-card.drag-placeholder {
+      border: 2px dashed #334155;
+      background: #0f1117;
+      height: 60px;
+    }
+
+    .drag-handle {
+      position: absolute; top: 10px; right: 10px;
+      color: #2d3748; cursor: grab;
+    }
+    .drag-handle svg { width: 14px; height: 14px; display: block; }
+
+    .feat-card-header { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 10px; padding-right: 20px; }
+    .feat-card-title  { font-size: .82rem; font-weight: 600; color: #cbd5e1; flex: 1; }
+    .feat-card-meta   { font-size: .72rem; color: #475569; margin-top: 2px; }
+
+    /* ── Stat strip ── */
+    .stat-strip {
+      display: flex; background: #0f1117; border-radius: 8px;
+      overflow: hidden; margin-bottom: 12px; border: 1px solid #1e2430;
+    }
+    .stat-cell { flex: 1; padding: 8px 6px; text-align: center; border-right: 1px solid #1e2430; }
     .stat-cell:last-child { border-right: none; }
-    .stat-cell .sv { font-size: 1rem; font-weight: 700; color: #e2e8f0; }
-    .stat-cell .sk { font-size: .68rem; color: #64748b; text-transform: uppercase; letter-spacing: .05em; margin-top: 2px; }
+    .stat-cell .sv { font-size: .82rem; font-weight: 700; color: #e2e8f0; }
+    .stat-cell .sk { font-size: .6rem; color: #64748b; text-transform: uppercase; letter-spacing: .04em; margin-top: 1px; }
 
-    /* charts */
-    .chart-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
-    .chart-card { background: #111827; border-radius: 12px; padding: 18px; border: 1px solid #1e2430; }
-    .chart-card .chart-title { font-size: .82rem; font-weight: 600; color: #cbd5e1; margin-bottom: 12px; }
-    .chart-card .chart-sub   { font-size: .72rem; color: #64748b; margin-bottom: 10px; }
-    .chart-card canvas { width: 100% !important; }
+    .feat-card canvas { width: 100% !important; }
 
-    /* correlation */
+    /* ── Value counts ── */
+    .vc-list { display: flex; flex-direction: column; gap: 5px; }
+    .vc-row { display: flex; align-items: center; gap: 8px; }
+    .vc-name { width: 90px; flex-shrink: 0; font-size: .75rem; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .vc-track { flex: 1; background: #1e2430; border-radius: 4px; height: 8px; overflow: hidden; }
+    .vc-bar { height: 100%; border-radius: 4px; }
+    .vc-count { width: 36px; text-align: right; font-size: .72rem; color: #64748b; flex-shrink: 0; }
+
+    /* ── Correlation ── */
     .corr-list { display: flex; flex-direction: column; gap: 8px; }
     .corr-row { display: flex; align-items: center; gap: 10px; }
     .corr-name { width: 140px; flex-shrink: 0; font-size: .8rem; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .corr-track { flex: 1; background: #1e2430; border-radius: 4px; height: 12px; overflow: hidden; position: relative; }
+    .corr-track { flex: 1; background: #1e2430; border-radius: 4px; height: 12px; overflow: hidden; }
     .corr-bar { height: 100%; border-radius: 4px; transition: width .5s; }
     .corr-val { width: 52px; text-align: right; font-size: .8rem; color: #cbd5e1; flex-shrink: 0; font-variant-numeric: tabular-nums; }
 
-    /* value counts */
-    .vc-list { display: flex; flex-direction: column; gap: 6px; }
-    .vc-row { display: flex; align-items: center; gap: 8px; }
-    .vc-name { width: 110px; flex-shrink: 0; font-size: .78rem; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .vc-track { flex: 1; background: #1e2430; border-radius: 4px; height: 9px; overflow: hidden; }
-    .vc-bar { height: 100%; border-radius: 4px; }
-    .vc-count { width: 40px; text-align: right; font-size: .75rem; color: #64748b; flex-shrink: 0; }
+    /* ── Label card ── */
+    .label-card { background: #111827; border-radius: 12px; padding: 18px; border: 1px solid #1e2030; }
+    .label-card canvas { width: 100% !important; }
+
+    /* ── Heatmap ── */
+    .heatmap-wrap { background: #111827; border-radius: 12px; padding: 20px; border: 1px solid #1e2030; overflow-x: auto; }
 
     #error-msg { color: #fca5a5; font-size: .95rem; padding: 40px 0; text-align: center; }
-
-    /* heatmap */
-    .heatmap-wrap { background: #111827; border-radius: 12px; padding: 20px; border: 1px solid #1e2030; overflow-x: auto; }
-    .heatmap-canvas-wrap { display: inline-block; }
+    .empty-note { color: #475569; font-size: .82rem; padding: 8px 0; }
   </style>
 </head>
 <body>
-  <div class="top-bar">
-    <a href="/" class="back-btn">
+  <nav class="site-nav" id="site-nav">
+    <a href="/" class="nav-back">
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
       </svg>
       Back
     </a>
+    <!-- nav items injected by JS -->
+  </nav>
+
+  <div class="top-bar">
     <div>
       <h1>Data Analysis</h1>
       <div class="subtitle" id="subtitle"></div>
@@ -102,252 +265,487 @@
   <div id="content"><div id="error-msg" style="display:none"></div></div>
 
   <script>
-    function escHtml(s) {
-      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    }
-    function round4(n) { return Math.round(n * 10000) / 10000; }
+    function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+    function round4(n)  { return Math.round(n * 10000) / 10000; }
 
+    let _sections = [];
+
+    // ── Bootstrap ────────────────────────────────────────────────────────────
     const raw = sessionStorage.getItem('analysisData');
     if (!raw) {
       document.getElementById('error-msg').style.display = '';
       document.getElementById('error-msg').textContent = 'No analysis data found. Go back and submit a file first.';
     } else {
-      render(JSON.parse(raw));
+      const data = JSON.parse(raw);
+      const typeOverrides = {};  // { colName: 'numeric' | 'categorical' }
+      render(data, typeOverrides);
     }
 
-    function render(data) {
+    function effectiveKind(name, info, overrides) {
+      return overrides[name] ?? info.kind;
+    }
+
+    // ── Main render ──────────────────────────────────────────────────────────
+    function render(data, typeOverrides) {
+      _sections = [];
+      const content = document.getElementById('content');
+      content.innerHTML = '';
+
       document.getElementById('subtitle').textContent =
         `${data.row_count} rows · ${data.features.length} feature${data.features.length!==1?'s':''} · label: ${data.label.name}`;
 
-      const content = document.getElementById('content');
-
-      // summary pills
-      const pills = document.createElement('div');
-      pills.className = 'summary-pills';
-      pills.innerHTML = `<span class="pill pill-label"><span class="pill-role">label</span>${escHtml(data.label.name)}</span>` +
-        data.features.map(f => `<span class="pill pill-feat"><span class="pill-role">feat</span>${escHtml(f)}</span>`).join('');
-      content.appendChild(pills);
+      // ── Column overview panels ──
+      content.appendChild(sectionTitle('Columns', 'sec-columns'));
+      content.appendChild(buildColumnPanels(data, typeOverrides, () => render(data, typeOverrides)));
 
       // ── Label ──
-      content.appendChild(sectionTitle('Label — ' + data.label.name));
-      renderColDetail(content, data.label, true);
+      content.appendChild(sectionTitle('Label — ' + data.label.name, 'sec-label'));
+      const labelCard = document.createElement('div');
+      labelCard.className = 'label-card';
+      const labelKind = effectiveKind(data.label.name, data.label, typeOverrides);
+      renderColContent(labelCard, data.label.name, data.label, labelKind, '#10b981');
+      content.appendChild(labelCard);
 
       // ── Correlation heatmap ──
+      const numericFeatures = data.features.filter(f =>
+        effectiveKind(f, data.feature_analysis[f], typeOverrides) === 'numeric');
       const cm = data.correlation_matrix;
-      if (cm && cm.columns.length > 1) {
-        content.appendChild(sectionTitle('Feature correlation heatmap'));
+      const heatmapCols = cm ? cm.columns.filter(c => numericFeatures.includes(c)) : [];
+      if (heatmapCols.length > 1) {
+        content.appendChild(sectionTitle('Correlation heatmap', 'sec-heatmap'));
         const wrap = document.createElement('div');
         wrap.className = 'heatmap-wrap';
         content.appendChild(wrap);
-        drawHeatmap(wrap, cm.columns, cm.values);
+        drawHeatmap(wrap, heatmapCols, cm.values);
       }
 
-      // ── Correlation (numeric features only) ──
-      const corrPairs = data.features
+      // ── Feature correlation with label ──
+      const corrPairs = numericFeatures
         .filter(f => data.feature_analysis[f]?.correlation_with_label != null)
         .map(f => ({ name: f, corr: data.feature_analysis[f].correlation_with_label }))
         .sort((a, b) => Math.abs(b.corr) - Math.abs(a.corr));
-
       if (corrPairs.length > 0) {
-        content.appendChild(sectionTitle('Feature correlation with label'));
-        const corrList = document.createElement('div');
-        corrList.className = 'corr-list';
+        content.appendChild(sectionTitle('Feature correlation with label', 'sec-corr'));
+        const list = document.createElement('div');
+        list.className = 'corr-list';
         corrPairs.forEach(({ name, corr }) => {
           const pct = (Math.abs(corr) * 100).toFixed(1);
           const color = corr >= 0 ? '#6366f1' : '#f43f5e';
-          const row = document.createElement('div');
-          row.className = 'corr-row';
-          row.innerHTML = `
-            <span class="corr-name" title="${escHtml(name)}">${escHtml(name)}</span>
-            <div class="corr-track"><div class="corr-bar" style="width:${pct}%;background:${color}"></div></div>
-            <span class="corr-val">${corr >= 0 ? '+' : ''}${corr}</span>`;
-          corrList.appendChild(row);
+          list.innerHTML += `
+            <div class="corr-row">
+              <span class="corr-name" title="${escHtml(name)}">${escHtml(name)}</span>
+              <div class="corr-track"><div class="corr-bar" style="width:${pct}%;background:${color}"></div></div>
+              <span class="corr-val">${corr >= 0 ? '+' : ''}${corr}</span>
+            </div>`;
         });
-        content.appendChild(corrList);
+        content.appendChild(list);
       }
 
-      // ── Features ──
+      // ── Feature charts (single column) ──
       if (data.features.length > 0) {
-        content.appendChild(sectionTitle('Features'));
-        const grid = document.createElement('div');
-        grid.className = 'chart-grid';
+        content.appendChild(sectionTitle('Features', 'sec-features'));
         data.features.forEach(f => {
-          const card = document.createElement('div');
-          card.className = 'chart-card';
-          card.innerHTML = `<div class="chart-title">${escHtml(f)}</div>`;
-          renderColDetail(card, data.feature_analysis[f], false);
-          grid.appendChild(card);
+          const kind = effectiveKind(f, data.feature_analysis[f], typeOverrides);
+          const color = kind === 'numeric' ? '#6366f1' : '#a855f7';
+          const card = buildFeatCard(f, data.feature_analysis[f], kind, color);
+          content.appendChild(card);
         });
-        content.appendChild(grid);
+      }
+
+      buildNav();
+    }
+
+    // ── Column panels (two side-by-side, drag rows between them) ────────────
+    function buildColumnPanels(data, typeOverrides, rerender) {
+      const allCols = [
+        { name: data.label.name, role: 'label', info: data.label },
+        ...data.features.map(f => ({ name: f, role: 'feature', info: data.feature_analysis[f] }))
+      ];
+
+      const numCols = allCols.filter(c => effectiveKind(c.name, c.info, typeOverrides) === 'numeric');
+      const catCols = allCols.filter(c => effectiveKind(c.name, c.info, typeOverrides) === 'categorical');
+
+      const panels = document.createElement('div');
+      panels.className = 'col-panels';
+
+      const numPanel = makeColPanel('numeric',     'Numeric', numCols.length);
+      const catPanel = makeColPanel('categorical', 'Object',  catCols.length);
+
+      function fillPanel(panel, cols, kind) {
+        const body = panel.querySelector('.panel-body');
+        body.innerHTML = '';
+        if (cols.length === 0) {
+          body.innerHTML = `<div class="panel-empty">Drop columns here</div>`;
+          return;
+        }
+        cols.forEach(({ name, role, info }) => {
+          const row = makeColRow(name, role, info);
+          row.dataset.col = name;
+          makeRowDraggable(row, kind);
+          body.appendChild(row);
+        });
+      }
+
+      fillPanel(numPanel, numCols, 'numeric');
+      fillPanel(catPanel, catCols, 'categorical');
+
+      [numPanel, catPanel].forEach(panel => {
+        const targetKind = panel.dataset.kind;
+        panel.addEventListener('dragover', e => {
+          e.preventDefault();
+          panel.classList.add('drag-over');
+          const ph = document.getElementById('col-row-ph');
+          if (ph) panel.querySelector('.panel-body').appendChild(ph);
+        });
+        panel.addEventListener('dragleave', e => {
+          if (!panel.contains(e.relatedTarget)) panel.classList.remove('drag-over');
+        });
+        panel.addEventListener('drop', e => {
+          e.preventDefault();
+          panel.classList.remove('drag-over');
+          const colName = e.dataTransfer.getData('text/plain');
+          if (!colName) return;
+          typeOverrides[colName] = targetKind;
+          rerender();
+        });
+      });
+
+      panels.appendChild(numPanel);
+      panels.appendChild(catPanel);
+      return panels;
+    }
+
+    function makeColPanel(kind, title, count) {
+      const icon = kind === 'numeric'
+        ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M7 20l4-16m2 16l4-16M3 9h18M3 15h18"/></svg>`
+        : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>`;
+      const panel = document.createElement('div');
+      panel.className = `col-panel ${kind}-panel`;
+      panel.dataset.kind = kind;
+      panel.innerHTML = `
+        <div class="panel-header">
+          <span class="panel-title ${kind}">${icon}${title}</span>
+          <span class="panel-count">${count}</span>
+        </div>
+        <div class="panel-body"></div>`;
+      return panel;
+    }
+
+    function makeColRow(name, role, info) {
+      const row = document.createElement('div');
+      row.className = 'col-row';
+      row.innerHTML = `
+        <span class="col-row-handle">
+          <svg viewBox="0 0 20 20" fill="currentColor">
+            <circle cx="7" cy="5" r="1.3"/><circle cx="13" cy="5" r="1.3"/>
+            <circle cx="7" cy="10" r="1.3"/><circle cx="13" cy="10" r="1.3"/>
+            <circle cx="7" cy="15" r="1.3"/><circle cx="13" cy="15" r="1.3"/>
+          </svg>
+        </span>
+        <span class="col-row-name" title="${escHtml(name)}">${escHtml(name)}</span>
+        <span class="col-row-unique">${info.n_unique ?? '—'} unique</span>
+        <span class="col-row-role">
+          <span class="col-role-badge ${role==='label'?'role-label':'role-feat'}">${role}</span>
+        </span>`;
+      return row;
+    }
+
+    function makeRowDraggable(row, kind) {
+      row.draggable = true;
+      row.addEventListener('dragstart', e => {
+        row.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', row.dataset.col);
+        const ph = document.createElement('div');
+        ph.className = 'col-row-placeholder';
+        ph.id = 'col-row-ph';
+        row.after(ph);
+      });
+      row.addEventListener('dragend', () => {
+        row.classList.remove('dragging');
+        document.getElementById('col-row-ph')?.remove();
+        document.querySelectorAll('.col-panel').forEach(p => p.classList.remove('drag-over'));
+      });
+    }
+
+    // ── Drag-and-drop two-column layout ──────────────────────────────────────
+    function buildDragLayout(data, typeOverrides, numFeats, catFeats, rerender) {
+      const layout = document.createElement('div');
+      layout.className = 'columns-layout';
+
+      const numLane = makeLane('numeric',     'Numeric',     numFeats.length);
+      const catLane = makeLane('categorical', 'Categorical', catFeats.length);
+
+      function populateLane(lane, feats, kind) {
+        const body = lane.querySelector('.lane-body');
+        body.innerHTML = '';
+        if (feats.length === 0) {
+          body.innerHTML = `<div class="lane-hint">Drop features here</div>`;
+        }
+        feats.forEach(f => {
+          const card = buildFeatCard(f, data.feature_analysis[f], kind);
+          card.dataset.col = f;
+          card.dataset.kind = kind;
+          makeDraggable(card);
+          body.appendChild(card);
+        });
+      }
+
+      populateLane(numLane, numFeats, 'numeric');
+      populateLane(catLane, catFeats, 'categorical');
+
+      // drop targets
+      [numLane, catLane].forEach(lane => {
+        const targetKind = lane.dataset.kind;
+        lane.addEventListener('dragover', e => {
+          e.preventDefault();
+          lane.classList.add('drag-over');
+          // show placeholder
+          const ph = document.getElementById('drag-placeholder');
+          if (ph && ph.dataset.laneKind !== targetKind) {
+            const body = lane.querySelector('.lane-body');
+            const hint = body.querySelector('.lane-hint');
+            if (hint) hint.remove();
+            ph.dataset.laneKind = targetKind;
+            body.appendChild(ph);
+          }
+        });
+        lane.addEventListener('dragleave', e => {
+          if (!lane.contains(e.relatedTarget)) {
+            lane.classList.remove('drag-over');
+          }
+        });
+        lane.addEventListener('drop', e => {
+          e.preventDefault();
+          lane.classList.remove('drag-over');
+          const colName = e.dataTransfer.getData('text/plain');
+          if (!colName) return;
+          typeOverrides[colName] = targetKind;
+          rerender();
+        });
+      });
+
+      layout.appendChild(numLane);
+      layout.appendChild(catLane);
+      return layout;
+    }
+
+    function makeLane(kind, title, count) {
+      const icon = kind === 'numeric'
+        ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+             <path d="M7 20l4-16m2 16l4-16M3 9h18M3 15h18"/>
+           </svg>`
+        : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+             <rect x="3" y="3" width="7" height="7" rx="1.5"/>
+             <rect x="14" y="3" width="7" height="7" rx="1.5"/>
+             <rect x="3" y="14" width="7" height="7" rx="1.5"/>
+             <rect x="14" y="14" width="7" height="7" rx="1.5"/>
+           </svg>`;
+      const lane = document.createElement('div');
+      lane.className = `col-lane ${kind}-lane`;
+      lane.dataset.kind = kind;
+      lane.innerHTML = `
+        <div class="lane-header">
+          <span class="lane-title ${kind}">${icon}${title}</span>
+          <span class="lane-count ${kind}">${count}</span>
+        </div>
+        <div class="lane-body"></div>`;
+      return lane;
+    }
+
+    function buildFeatCard(name, info, kind, color) {
+      const nUnique = info.n_unique ?? '—';
+      const typeCls = kind === 'numeric' ? 'type-numeric' : 'type-categorical';
+
+      const card = document.createElement('div');
+      card.className = 'feat-card';
+      card.style.cursor = 'default';
+      card.innerHTML = `
+        <div class="feat-card-header">
+          <div>
+            <div class="feat-card-title">${escHtml(name)}</div>
+            <div class="feat-card-meta">${nUnique} unique</div>
+          </div>
+          <span class="type-badge ${typeCls}">${kind === 'numeric' ? 'numeric' : 'object'}</span>
+        </div>`;
+
+      renderColContent(card, name, info, kind, color);
+      return card;
+    }
+
+    function renderColContent(card, name, info, kind, color) {
+      if (kind === 'numeric') {
+        const s = info.stats;
+        if (s && Object.keys(s).length) {
+          const strip = document.createElement('div');
+          strip.className = 'stat-strip';
+          [['Mean',s.mean],['Std',s.std],['Min',s.min],['Med',s.median],['Max',s.max]]
+            .forEach(([k,v]) => strip.innerHTML += `<div class="stat-cell"><div class="sv">${v}</div><div class="sk">${k}</div></div>`);
+          card.appendChild(strip);
+
+          const h = info.histogram;
+          if (h && h.edges.length > 1) {
+            const canvas = document.createElement('canvas');
+            canvas.height = 110;
+            card.appendChild(canvas);
+            new Chart(canvas, {
+              type: 'bar',
+              data: { labels: h.edges.slice(0,-1).map((v,i) => round4((v+h.edges[i+1])/2)),
+                      datasets: [{ data: h.counts, backgroundColor: color+'88', borderColor: color, borderWidth:1, borderRadius:2 }] },
+              options: { plugins:{legend:{display:false}},
+                         scales:{ x:{ticks:{color:'#64748b',maxTicksLimit:5,font:{size:9}},grid:{color:'#1a2030'}},
+                                  y:{ticks:{color:'#64748b',font:{size:9}},grid:{color:'#1a2030'}} },
+                         animation:{duration:300} }
+            });
+          }
+        } else {
+          card.innerHTML += `<div class="empty-note">Cannot parse as numeric.</div>`;
+        }
+      } else {
+        const vc = info.value_counts;
+        if (vc && Object.keys(vc).length) {
+          const maxCount = Math.max(...Object.values(vc));
+          const list = document.createElement('div');
+          list.className = 'vc-list';
+          Object.entries(vc).slice(0,12).forEach(([k,v]) => {
+            list.innerHTML += `
+              <div class="vc-row">
+                <span class="vc-name" title="${escHtml(k)}">${escHtml(k)}</span>
+                <div class="vc-track"><div class="vc-bar" style="width:${(v/maxCount*100).toFixed(1)}%;background:${color}"></div></div>
+                <span class="vc-count">${v}</span>
+              </div>`;
+          });
+          card.appendChild(list);
+        } else {
+          card.innerHTML += `<div class="empty-note">No category data available.</div>`;
+        }
       }
     }
 
-    function sectionTitle(text) {
-      const el = document.createElement('div');
-      el.className = 'section-title';
-      el.textContent = text;
-      return el;
+    // ── Drag-and-drop wiring ─────────────────────────────────────────────────
+    function makeDraggable(card) {
+      card.draggable = true;
+
+      card.addEventListener('dragstart', e => {
+        card.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', card.dataset.col);
+
+        // create a placeholder
+        const ph = document.createElement('div');
+        ph.className = 'feat-card drag-placeholder';
+        ph.id = 'drag-placeholder';
+        ph.dataset.laneKind = card.dataset.kind;
+        card.after(ph);
+      });
+
+      card.addEventListener('dragend', () => {
+        card.classList.remove('dragging');
+        const ph = document.getElementById('drag-placeholder');
+        if (ph) ph.remove();
+        document.querySelectorAll('.col-lane').forEach(l => l.classList.remove('drag-over'));
+      });
     }
 
+    // ── Heatmap ──────────────────────────────────────────────────────────────
     function drawHeatmap(container, cols, values) {
       const n = cols.length;
-      const cell = 56;
-      const labelW = 110;
-      const labelH = 80;
-      const W = labelW + n * cell;
-      const H = labelH + n * cell;
+      const cell = 56, labelW = 110, labelH = 80;
+      const W = labelW + n*cell, H = labelH + n*cell;
 
       const canvas = document.createElement('canvas');
-      canvas.width  = W;
-      canvas.height = H;
-      canvas.style.display = 'block';
+      canvas.width = W; canvas.height = H; canvas.style.display = 'block';
       container.appendChild(canvas);
-
       const ctx = canvas.getContext('2d');
 
       function corrColor(v) {
-        // -1 → red, 0 → dark, +1 → indigo
         if (v === null) return '#1e2430';
-        const t = (v + 1) / 2; // 0..1
-        const r = Math.round(239 * (1 - t) + 99  * t);
-        const g = Math.round(68  * (1 - t) + 102 * t);
-        const b = Math.round(68  * (1 - t) + 241 * t);
-        return `rgb(${r},${g},${b})`;
+        const t = (v+1)/2;
+        return `rgb(${Math.round(239*(1-t)+99*t)},${Math.round(68*(1-t)+102*t)},${Math.round(68*(1-t)+241*t)})`;
       }
 
-      // column labels (rotated)
-      ctx.save();
-      ctx.font = '11px system-ui, sans-serif';
-      ctx.fillStyle = '#94a3b8';
-      ctx.textAlign = 'left';
+      ctx.font = '11px system-ui,sans-serif'; ctx.fillStyle = '#94a3b8';
       cols.forEach((col, i) => {
-        const x = labelW + i * cell + cell / 2;
-        ctx.save();
-        ctx.translate(x, labelH - 8);
-        ctx.rotate(-Math.PI / 4);
-        ctx.fillText(col.length > 14 ? col.slice(0, 13) + '…' : col, 0, 0);
+        ctx.save(); ctx.translate(labelW + i*cell + cell/2, labelH - 8);
+        ctx.rotate(-Math.PI/4); ctx.textAlign = 'left';
+        ctx.fillText(col.length > 14 ? col.slice(0,13)+'…' : col, 0, 0);
         ctx.restore();
       });
-      ctx.restore();
-
-      // row labels
-      ctx.font = '11px system-ui, sans-serif';
-      ctx.fillStyle = '#94a3b8';
       ctx.textAlign = 'right';
-      cols.forEach((col, i) => {
-        const y = labelH + i * cell + cell / 2 + 4;
-        const label = col.length > 14 ? col.slice(0, 13) + '…' : col;
-        ctx.fillText(label, labelW - 6, y);
-      });
+      cols.forEach((col, i) =>
+        ctx.fillText(col.length > 14 ? col.slice(0,13)+'…' : col, labelW-6, labelH + i*cell + cell/2 + 4));
 
-      // cells
-      cols.forEach((rowCol, i) => {
-        cols.forEach((colCol, j) => {
-          const v = values[rowCol]?.[colCol] ?? null;
-          const x = labelW + j * cell;
-          const y = labelH + i * cell;
+      cols.forEach((r, i) => cols.forEach((c, j) => {
+        const v = values[r]?.[c] ?? null;
+        const x = labelW + j*cell, y = labelH + i*cell;
+        ctx.fillStyle = corrColor(v);
+        ctx.beginPath(); ctx.roundRect(x+2, y+2, cell-4, cell-4, 4); ctx.fill();
+        if (v !== null) {
+          ctx.fillStyle = Math.abs(v) > 0.5 ? '#fff' : '#cbd5e1';
+          ctx.font = 'bold 11px system-ui,sans-serif';
+          ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.fillText(v.toFixed(2), x+cell/2, y+cell/2);
+        }
+      }));
 
-          ctx.fillStyle = corrColor(v);
-          ctx.beginPath();
-          ctx.roundRect(x + 2, y + 2, cell - 4, cell - 4, 4);
-          ctx.fill();
-
-          if (v !== null) {
-            ctx.fillStyle = Math.abs(v) > 0.5 ? '#fff' : '#cbd5e1';
-            ctx.font = 'bold 11px system-ui, sans-serif';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(v.toFixed(2), x + cell / 2, y + cell / 2);
-          }
-        });
-      });
-
-      // colour legend
-      const legX = labelW, legY = H - 0, legW = n * cell, legH = 8;
-      const legendCanvas = document.createElement('canvas');
-      legendCanvas.width  = W;
-      legendCanvas.height = 28;
-      legendCanvas.style.display = 'block';
-      legendCanvas.style.marginTop = '6px';
-      container.appendChild(legendCanvas);
-      const lc = legendCanvas.getContext('2d');
-      const grad = lc.createLinearGradient(legX, 0, legX + legW, 0);
-      grad.addColorStop(0,   'rgb(239,68,68)');
-      grad.addColorStop(0.5, 'rgb(30,36,48)');
-      grad.addColorStop(1,   'rgb(99,102,241)');
-      lc.fillStyle = grad;
-      lc.beginPath();
-      lc.roundRect(legX, 2, legW, legH, 4);
-      lc.fill();
-      lc.font = '10px system-ui, sans-serif';
-      lc.fillStyle = '#64748b';
-      lc.textAlign = 'left';  lc.fillText('-1', legX, legH + 14);
-      lc.textAlign = 'center';lc.fillText('0',  legX + legW / 2, legH + 14);
-      lc.textAlign = 'right'; lc.fillText('+1', legX + legW, legH + 14);
+      const lc_canvas = document.createElement('canvas');
+      lc_canvas.width = W; lc_canvas.height = 28;
+      lc_canvas.style.cssText = 'display:block;margin-top:6px';
+      container.appendChild(lc_canvas);
+      const lc = lc_canvas.getContext('2d');
+      const grad = lc.createLinearGradient(labelW, 0, labelW+n*cell, 0);
+      grad.addColorStop(0,'rgb(239,68,68)'); grad.addColorStop(.5,'rgb(30,36,48)'); grad.addColorStop(1,'rgb(99,102,241)');
+      lc.fillStyle = grad; lc.beginPath(); lc.roundRect(labelW, 2, n*cell, 8, 4); lc.fill();
+      lc.font = '10px system-ui,sans-serif'; lc.fillStyle = '#64748b';
+      lc.textAlign = 'left';   lc.fillText('-1',  labelW, 20);
+      lc.textAlign = 'center'; lc.fillText('0',   labelW+n*cell/2, 20);
+      lc.textAlign = 'right';  lc.fillText('+1',  labelW+n*cell, 20);
     }
 
-    function renderColDetail(parent, info, isLabel) {
-      const color = isLabel ? '#10b981' : '#6366f1';
+    // sections registry — populated during render, used to build nav
 
-      if (info.kind === 'numeric') {
-        const s = info.stats;
-        // stat strip
-        const strip = document.createElement('div');
-        strip.className = 'stat-strip';
-        [['Mean', s.mean], ['Std', s.std], ['Min', s.min], ['Median', s.median], ['Max', s.max]]
-          .forEach(([k, v]) => {
-            strip.innerHTML += `<div class="stat-cell"><div class="sv">${v}</div><div class="sk">${k}</div></div>`;
-          });
-        parent.appendChild(strip);
+    function sectionTitle(text, id) {
+      const el = document.createElement('div');
+      el.className = 'section-title';
+      el.textContent = text;
+      if (id) {
+        el.id = id;
+        _sections.push({ id, label: text });
+      }
+      return el;
+    }
 
-        // histogram
-        const canvas = document.createElement('canvas');
-        canvas.height = 140;
-        parent.appendChild(canvas);
-        const h = info.histogram;
-        const labels = h.edges.slice(0,-1).map((v,i) => round4((v + h.edges[i+1]) / 2));
-        new Chart(canvas, {
-          type: 'bar',
-          data: {
-            labels,
-            datasets: [{
-              data: h.counts,
-              backgroundColor: color + '99',
-              borderColor: color,
-              borderWidth: 1,
-              borderRadius: 2,
-            }]
-          },
-          options: {
-            plugins: { legend: { display: false } },
-            scales: {
-              x: { ticks: { color:'#64748b', maxTicksLimit:6, font:{size:10} }, grid:{color:'#1a2030'} },
-              y: { ticks: { color:'#64748b', font:{size:10} }, grid:{color:'#1a2030'} }
-            },
-            animation: { duration: 500 }
+    function buildNav() {
+      const nav = document.getElementById('site-nav');
+      // remove old nav items (keep the back link)
+      nav.querySelectorAll('.nav-item').forEach(n => n.remove());
+
+      _sections.forEach(({ id, label }) => {
+        const item = document.createElement('div');
+        item.className = 'nav-item';
+        // shorten long titles for nav
+        item.textContent = label.replace(/ —.*/, '').replace(/\(.*\)/, '').trim();
+        item.dataset.target = id;
+        item.addEventListener('click', () => {
+          document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+        nav.appendChild(item);
+      });
+
+      // highlight active section on scroll
+      const observer = new IntersectionObserver(entries => {
+        entries.forEach(e => {
+          if (e.isIntersecting) {
+            nav.querySelectorAll('.nav-item').forEach(n =>
+              n.classList.toggle('active', n.dataset.target === e.target.id));
           }
         });
-      } else {
-        // categorical value counts
-        const vc = info.value_counts;
-        const maxCount = Math.max(...Object.values(vc));
-        const list = document.createElement('div');
-        list.className = 'vc-list';
-        Object.entries(vc).slice(0, 15).forEach(([k, v]) => {
-          const pct = (v / maxCount * 100).toFixed(1);
-          list.innerHTML += `
-            <div class="vc-row">
-              <span class="vc-name" title="${escHtml(k)}">${escHtml(k)}</span>
-              <div class="vc-track"><div class="vc-bar" style="width:${pct}%;background:${color}"></div></div>
-              <span class="vc-count">${v}</span>
-            </div>`;
-        });
-        const sub = document.createElement('div');
-        sub.className = 'chart-sub';
-        sub.textContent = `${info.n_unique} unique value${info.n_unique!==1?'s':''}`;
-        parent.appendChild(sub);
-        parent.appendChild(list);
-      }
+      }, { rootMargin: '-30% 0px -60% 0px' });
+
+      _sections.forEach(({ id }) => {
+        const el = document.getElementById(id);
+        if (el) observer.observe(el);
+      });
     }
   </script>
 </body>
