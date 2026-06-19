@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+
+# Uploads
+uploads/
+
+# Env
+.env
+.env.*
