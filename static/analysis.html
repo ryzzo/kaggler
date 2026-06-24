@@ -15,9 +15,26 @@
       max-width: 1100px; margin: 0 auto;
     }
 
-    /* ── Sticky nav ── */
+    /* ── Main nav ── */
+    .main-nav {
+      position: sticky; top: 0; z-index: 60;
+      background: #0f1117cc; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid #1e2430;
+      display: flex; align-items: center; gap: 0;
+      margin: 0 -24px; padding: 0 24px;
+    }
+    .main-nav a {
+      padding: 14px 20px; font-size: .88rem; font-weight: 600;
+      color: #64748b; text-decoration: none; white-space: nowrap;
+      border-bottom: 2px solid transparent; margin-bottom: -1px;
+      transition: color .15s, border-color .15s;
+    }
+    .main-nav a:hover { color: #cbd5e1; }
+    .main-nav a.active { color: #a5b4fc; border-bottom-color: #6366f1; }
+
+    /* ── Section sub-nav ── */
     .site-nav {
-      position: sticky; top: 0; z-index: 50;
+      position: sticky; top: 49px; z-index: 50;
       background: #0f1117cc;
       backdrop-filter: blur(12px);
       -webkit-backdrop-filter: blur(12px);
@@ -30,17 +47,8 @@
     }
     .site-nav::-webkit-scrollbar { display: none; }
 
-    .nav-back {
-      display: flex; align-items: center; gap: 5px;
-      padding: 12px 14px; font-size: .82rem; color: #64748b;
-      text-decoration: none; white-space: nowrap; border-right: 1px solid #1e2430;
-      transition: color .15s; flex-shrink: 0;
-    }
-    .nav-back:hover { color: #e2e8f0; }
-    .nav-back svg { width: 13px; height: 13px; }
-
     .nav-item {
-      padding: 12px 14px; font-size: .82rem; color: #64748b;
+      padding: 10px 14px; font-size: .8rem; color: #64748b;
       cursor: pointer; white-space: nowrap; border-bottom: 2px solid transparent;
       transition: color .15s, border-color .15s; flex-shrink: 0; user-select: none;
       margin-bottom: -1px;
@@ -48,8 +56,7 @@
     .nav-item:hover  { color: #cbd5e1; }
     .nav-item.active { color: #a5b4fc; border-bottom-color: #6366f1; }
 
-    .top-bar { display: flex; align-items: center; gap: 16px; margin-bottom: 28px; padding-top: 32px; }
-    .back-btn { display: none; }
+    .top-bar { display: flex; align-items: center; gap: 16px; margin-bottom: 28px; padding-top: 16px; }
     h1 { font-size: 1.5rem; font-weight: 700; }
     .subtitle { color: #64748b; font-size: .85rem; margin-top: 2px; }
 
@@ -245,14 +252,12 @@
   </style>
 </head>
 <body>
+  <nav class="main-nav">
+    <a href="/">Data Collection</a>
+    <a href="/analysis" class="active">Data Exploration</a>
+  </nav>
   <nav class="site-nav" id="site-nav">
-    <a href="/" class="nav-back">
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
-      </svg>
-      Back
-    </a>
-    <!-- nav items injected by JS -->
+    <!-- section nav items injected by JS -->
   </nav>
 
   <div class="top-bar">
