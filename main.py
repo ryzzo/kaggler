@@ -262,12 +262,16 @@ def analyze(req: AnalyzeRequest):
         col: [r[col] for r in rows] for col in [*req.features, req.label]
     }
 
+    def _missing_count(values: list[str]) -> int:
+        return sum(1 for v in values if v.strip() == "")
+
     label_nums = _to_float(raw[req.label])
     label_cats = Counter(raw[req.label]) if label_nums is None else None
 
     feature_analysis = {}
     numeric_cols: dict[str, list[float]] = {}
     for col in req.features:
+        missing = _missing_count(raw[col])
         nums = _to_float(raw[col])
         if nums is not None:
             corr = _correlation(nums, label_nums) if label_nums else None
@@ -275,6 +279,7 @@ def analyze(req: AnalyzeRequest):
             feature_analysis[col] = {
                 "kind": "numeric",
                 "n_unique": len(set(nums)),
+                "missing": missing,
                 "stats": _stats(nums),
                 "histogram": _histogram(nums),
                 "correlation_with_label": corr,
@@ -285,18 +290,22 @@ def analyze(req: AnalyzeRequest):
                 "kind": "categorical",
                 "value_counts": dict(counts.most_common(20)),
                 "n_unique": len(counts),
+                "missing": missing,
             }
 
+    label_missing = _missing_count(raw[req.label])
     label_info: dict[str, Any] = {"name": req.label}
     if label_nums is not None:
         label_info["kind"] = "numeric"
         label_info["n_unique"] = len(set(label_nums))
+        label_info["missing"] = label_missing
         label_info["stats"] = _stats(label_nums)
         label_info["histogram"] = _histogram(label_nums)
     else:
         label_info["kind"] = "categorical"
         label_info["value_counts"] = dict(label_cats.most_common(20))  # type: ignore[union-attr]
         label_info["n_unique"] = len(label_cats)  # type: ignore[arg-type]
+        label_info["missing"] = label_missing
 
     # pairwise correlation matrix (numeric features only)
     num_keys = list(numeric_cols.keys())

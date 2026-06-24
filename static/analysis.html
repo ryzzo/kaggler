@@ -136,7 +136,17 @@
     .col-row-handle svg { width: 12px; height: 12px; display: block; }
     .col-row-name { font-size: .82rem; font-weight: 600; color: #e2e8f0; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .col-row-unique { font-size: .72rem; color: #475569; flex-shrink: 0; white-space: nowrap; }
+    .col-row-missing { font-size: .72rem; flex-shrink: 0; white-space: nowrap; }
+    .col-row-missing.has-missing { color: #fbbf24; }
+    .col-row-missing.no-missing { color: #475569; }
     .col-row-role { flex-shrink: 0; }
+
+    .missing-badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: .7rem; font-weight: 600; padding: 2px 8px; border-radius: 6px;
+    }
+    .missing-badge.has-missing { background: #422006; color: #fbbf24; }
+    .missing-badge.no-missing { background: #1a2030; color: #475569; }
 
     .panel-empty {
       color: #2d3748; font-size: .78rem; text-align: center;
@@ -439,6 +449,8 @@
     function makeColRow(name, role, info) {
       const row = document.createElement('div');
       row.className = 'col-row';
+      const missing = info.missing ?? 0;
+      const missingCls = missing > 0 ? 'has-missing' : 'no-missing';
       row.innerHTML = `
         <span class="col-row-handle">
           <svg viewBox="0 0 20 20" fill="currentColor">
@@ -448,6 +460,7 @@
           </svg>
         </span>
         <span class="col-row-name" title="${escHtml(name)}">${escHtml(name)}</span>
+        <span class="col-row-missing ${missingCls}">${missing > 0 ? missing + ' missing' : '0 missing'}</span>
         <span class="col-row-unique">${info.n_unique ?? '—'} unique</span>
         <span class="col-row-role">
           <span class="col-role-badge ${role==='label'?'role-label':'role-feat'}">${role}</span>
@@ -560,6 +573,8 @@
 
     function buildFeatCard(name, info, kind, color) {
       const nUnique = info.n_unique ?? '—';
+      const missing = info.missing ?? 0;
+      const missingCls = missing > 0 ? 'has-missing' : 'no-missing';
       const typeCls = kind === 'numeric' ? 'type-numeric' : 'type-categorical';
 
       const card = document.createElement('div');
@@ -569,7 +584,7 @@
         <div class="feat-card-header">
           <div>
             <div class="feat-card-title">${escHtml(name)}</div>
-            <div class="feat-card-meta">${nUnique} unique</div>
+            <div class="feat-card-meta">${nUnique} unique · <span class="missing-badge ${missingCls}">${missing} missing</span></div>
           </div>
           <span class="type-badge ${typeCls}">${kind === 'numeric' ? 'numeric' : 'object'}</span>
         </div>`;
