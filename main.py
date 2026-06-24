@@ -75,6 +75,10 @@ async def upload_file(file: UploadFile = File(...)):
     filename = file.filename or "unknown"
     suffix = Path(filename).suffix.lower()
 
+    for old in UPLOAD_DIR.iterdir():
+        if old.is_file():
+            old.unlink()
+
     file_id = str(uuid.uuid4())
     save_path = UPLOAD_DIR / f"{file_id}{suffix}"
     save_path.write_bytes(content)
@@ -102,6 +106,10 @@ async def upload_file(file: UploadFile = File(...)):
 
 @app.post("/upload/batch")
 async def upload_batch(files: list[UploadFile] = File(...)):
+    for old in UPLOAD_DIR.iterdir():
+        if old.is_file():
+            old.unlink()
+
     results = []
     for file in files:
         content = await file.read()
