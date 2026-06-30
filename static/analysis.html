@@ -257,6 +257,17 @@
     /* ── Heatmap ── */
     .heatmap-wrap { background: #111827; border-radius: 12px; padding: 20px; border: 1px solid #1e2030; overflow-x: auto; }
 
+    .next-banner {
+      display: flex; align-items: center; justify-content: space-between;
+      background: #1e1b4b; border: 1px solid #312e81; border-radius: 10px;
+      padding: 12px 18px; margin-bottom: 24px; gap: 12px;
+      text-decoration: none; transition: background .15s, border-color .15s;
+    }
+    .next-banner:hover { background: #252159; border-color: #4338ca; }
+    .next-banner-text { font-size: .88rem; color: #c7d2fe; }
+    .next-banner-text strong { color: #e0e7ff; }
+    .next-banner-arrow { color: #6366f1; font-size: 1.1rem; flex-shrink: 0; }
+
     #error-msg { color: #fca5a5; font-size: .95rem; padding: 40px 0; text-align: center; }
     .empty-note { color: #475569; font-size: .82rem; padding: 8px 0; }
   </style>
@@ -265,6 +276,7 @@
   <nav class="main-nav">
     <a href="/">Data Collection</a>
     <a href="/analysis" class="active">Data Exploration</a>
+    <a href="/preparation">Data Preparation</a>
   </nav>
   <nav class="site-nav" id="site-nav">
     <!-- section nav items injected by JS -->
@@ -308,6 +320,14 @@
 
       document.getElementById('subtitle').textContent =
         `${data.row_count} rows · ${data.features.length} feature${data.features.length!==1?'s':''} · label: ${data.label.name}`;
+
+      const banner = document.createElement('a');
+      banner.className = 'next-banner';
+      banner.href = '/preparation';
+      banner.innerHTML = `
+        <span class="next-banner-text">Next: <strong>Data Preparation</strong></span>
+        <span class="next-banner-arrow">&rarr;</span>`;
+      content.appendChild(banner);
 
       // ── Column overview panels ──
       content.appendChild(sectionTitle('Columns', 'sec-columns'));

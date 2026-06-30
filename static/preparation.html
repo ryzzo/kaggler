@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Data Preparation</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, sans-serif;
+      background: #0f1117; color: #e2e8f0;
+      min-height: 100vh; padding: 0 24px 60px;
+      max-width: 1100px; margin: 0 auto;
+    }
+
+    .main-nav {
+      position: sticky; top: 0; z-index: 60;
+      background: #0f1117cc; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid #1e2430;
+      display: flex; align-items: center; gap: 0;
+      margin: 0 -24px; padding: 0 24px;
+    }
+    .main-nav a {
+      padding: 14px 20px; font-size: .88rem; font-weight: 600;
+      color: #64748b; text-decoration: none; white-space: nowrap;
+      border-bottom: 2px solid transparent; margin-bottom: -1px;
+      transition: color .15s, border-color .15s;
+    }
+    .main-nav a:hover { color: #cbd5e1; }
+    .main-nav a.active { color: #a5b4fc; border-bottom-color: #6366f1; }
+
+    .top-bar { display: flex; align-items: center; gap: 16px; margin-bottom: 28px; padding-top: 16px; }
+    h1 { font-size: 1.5rem; font-weight: 700; }
+    .subtitle { color: #64748b; font-size: .85rem; margin-top: 2px; }
+
+    .section-title {
+      font-size: .72rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .07em; color: #475569; margin: 36px 0 14px;
+      padding-bottom: 8px; border-bottom: 1px solid #1e2430;
+    }
+
+    .col-table { width: 100%; border-collapse: collapse; background: #111827; border-radius: 10px; overflow: hidden; border: 1px solid #1e2030; }
+    .col-table th, .col-table td { padding: 10px 14px; text-align: left; font-size: .82rem; border-bottom: 1px solid #1e2430; }
+    .col-table th { color: #64748b; font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; font-weight: 700; }
+    .col-table tr:last-child td { border-bottom: none; }
+    .col-name { font-weight: 600; color: #e2e8f0; }
+    .role-badge { font-size: .65rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; padding: 2px 7px; border-radius: 999px; }
+    .role-label { background: #064e3b; color: #6ee7b7; }
+    .role-feat  { background: #1e1b4b; color: #a5b4fc; }
+
+    .kind-select {
+      background: #0f1117; color: #e2e8f0; border: 1px solid #2d3748; border-radius: 6px;
+      padding: 4px 8px; font-size: .78rem; cursor: pointer;
+    }
+
+    .transform-note { font-size: .75rem; color: #64748b; }
+
+    .btn {
+      background: #4f46e5; color: #fff; border: none; border-radius: 8px;
+      padding: 10px 20px; font-size: .85rem; font-weight: 600; cursor: pointer;
+      transition: background .15s;
+    }
+    .btn:hover { background: #4338ca; }
+    .btn:disabled { background: #2d3748; cursor: not-allowed; }
+    .btn-secondary { background: #1e2430; color: #cbd5e1; }
+    .btn-secondary:hover { background: #2d3748; }
+
+    .action-row { display: flex; gap: 10px; margin-top: 20px; align-items: center; }
+
+    .result-table-wrap { overflow-x: auto; background: #111827; border-radius: 10px; border: 1px solid #1e2030; }
+    .result-table { border-collapse: collapse; width: 100%; }
+    .result-table th, .result-table td { padding: 8px 12px; font-size: .78rem; text-align: right; white-space: nowrap; border-bottom: 1px solid #1e2430; }
+    .result-table th { color: #93c5fd; font-weight: 700; text-align: right; }
+    .result-table td:first-child, .result-table th:first-child { text-align: left; color: #64748b; }
+
+    .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 700px) { .info-grid { grid-template-columns: 1fr; } }
+    .info-card { background: #111827; border: 1px solid #1e2030; border-radius: 10px; padding: 14px; }
+    .info-card h3 { font-size: .78rem; color: #cbd5e1; margin-bottom: 8px; }
+    .mapping-row, .scale-row { display: flex; justify-content: space-between; font-size: .76rem; color: #94a3b8; padding: 3px 0; }
+    .mapping-row span:last-child, .scale-row span:last-child { color: #cbd5e1; font-variant-numeric: tabular-nums; }
+
+    .placeholder { text-align: center; padding: 80px 20px; color: #475569; font-size: .95rem; }
+
+    #error-msg { color: #fca5a5; font-size: .95rem; padding: 40px 0; text-align: center; }
+    .download-link { color: #a5b4fc; text-decoration: none; font-size: .85rem; font-weight: 600; }
+    .download-link:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <nav class="main-nav">
+    <a href="/">Data Collection</a>
+    <a href="/analysis">Data Exploration</a>
+    <a href="/preparation" class="active">Data Preparation</a>
+  </nav>
+
+  <div class="top-bar">
+    <div>
+      <h1>Data Preparation</h1>
+      <div class="subtitle" id="subtitle">Convert categorical columns to numeric and standard-scale numeric columns.</div>
+    </div>
+  </div>
+
+  <div id="content"><div id="error-msg" style="display:none"></div></div>
+
+  <script>
+    function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+    const raw = sessionStorage.getItem('analysisData');
+    if (!raw) {
+      document.getElementById('error-msg').style.display = '';
+      document.getElementById('error-msg').textContent = 'No data found. Go back and submit a file first.';
+    } else {
+      const data = JSON.parse(raw);
+      const kinds = {};
+      kinds[data.label.name] = data.label.kind;
+      data.features.forEach(f => { kinds[f] = data.feature_analysis[f].kind; });
+      render(data, kinds);
+    }
+
+    function render(data, kinds) {
+      const content = document.getElementById('content');
+      content.innerHTML = '';
+      document.getElementById('subtitle').textContent =
+        `${data.row_count} rows · ${data.features.length} feature${data.features.length!==1?'s':''} · label: ${data.label.name}`;
+
+      const title = document.createElement('div');
+      title.className = 'section-title';
+      title.textContent = 'Columns & transform';
+      content.appendChild(title);
+
+      const table = document.createElement('table');
+      table.className = 'col-table';
+      table.innerHTML = `<thead><tr><th>Column</th><th>Role</th><th>Type</th><th>Transform</th></tr></thead>`;
+      const tbody = document.createElement('tbody');
+      table.appendChild(tbody);
+
+      const allCols = [
+        { name: data.label.name, role: 'label' },
+        ...data.features.map(f => ({ name: f, role: 'feature' })),
+      ];
+
+      allCols.forEach(({ name, role }) => {
+        const tr = document.createElement('tr');
+        const kind = kinds[name];
+        tr.innerHTML = `
+          <td class="col-name">${escHtml(name)}</td>
+          <td><span class="role-badge ${role==='label'?'role-label':'role-feat'}">${role}</span></td>
+          <td>
+            <select class="kind-select" data-col="${escHtml(name)}">
+              <option value="numeric" ${kind==='numeric'?'selected':''}>numeric</option>
+              <option value="categorical" ${kind==='categorical'?'selected':''}>categorical</option>
+            </select>
+          </td>
+          <td class="transform-note">${kind==='numeric' ? 'Standard scaling (z-score)' : 'Label encoding'}</td>`;
+        tbody.appendChild(tr);
+        const select = tr.querySelector('select');
+        select.addEventListener('change', () => {
+          kinds[name] = select.value;
+          tr.querySelector('.transform-note').textContent =
+            select.value === 'numeric' ? 'Standard scaling (z-score)' : 'Label encoding';
+        });
+      });
+
+      content.appendChild(table);
+
+      const actionRow = document.createElement('div');
+      actionRow.className = 'action-row';
+      const prepareBtn = document.createElement('button');
+      prepareBtn.className = 'btn';
+      prepareBtn.textContent = 'Prepare data';
+      actionRow.appendChild(prepareBtn);
+      content.appendChild(actionRow);
+
+      const resultsHost = document.createElement('div');
+      content.appendChild(resultsHost);
+
+      prepareBtn.addEventListener('click', async () => {
+        prepareBtn.disabled = true;
+        prepareBtn.textContent = 'Preparing…';
+        try {
+          const resp = await fetch('/prepare', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              file_id: data.file_id,
+              features: data.features,
+              label: data.label.name,
+              column_kinds: kinds,
+            }),
+          });
+          if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            if (resp.status === 404) {
+              throw new Error('STALE_FILE');
+            }
+            throw new Error(err.detail || `Request failed (${resp.status})`);
+          }
+          const result = await resp.json();
+          renderResults(resultsHost, result);
+        } catch (e) {
+          if (e.message === 'STALE_FILE') {
+            resultsHost.innerHTML = `<div id="error-msg" style="padding:20px 0">
+              The uploaded file is no longer on the server (only the most recent upload is kept).
+              <br><a class="download-link" href="/">&larr; Go re-upload your file and re-run Analyse</a>
+            </div>`;
+          } else {
+            resultsHost.innerHTML = `<div id="error-msg" style="padding:20px 0">${escHtml(e.message)}</div>`;
+          }
+        } finally {
+          prepareBtn.disabled = false;
+          prepareBtn.textContent = 'Prepare data';
+        }
+      });
+    }
+
+    function renderResults(host, result) {
+      host.innerHTML = '';
+
+      const dlRow = document.createElement('div');
+      dlRow.className = 'action-row';
+      dlRow.innerHTML = `<a class="download-link" href="${result.download_url}" download>&darr; Download prepared CSV (${result.row_count} rows)</a>`;
+      host.appendChild(dlRow);
+
+      // Preview table
+      const t1 = document.createElement('div');
+      t1.className = 'section-title';
+      t1.textContent = `Sample of prepared dataset (first ${result.preview.length} of ${result.row_count} rows)`;
+      host.appendChild(t1);
+
+      const wrap = document.createElement('div');
+      wrap.className = 'result-table-wrap';
+      const table = document.createElement('table');
+      table.className = 'result-table';
+      table.innerHTML = `<thead><tr>${result.columns.map(c => `<th>${escHtml(c)}</th>`).join('')}</tr></thead>`;
+      const tbody = document.createElement('tbody');
+      result.preview.forEach(row => {
+        tbody.innerHTML += `<tr>${result.columns.map(c => `<td>${row[c]}</td>`).join('')}</tr>`;
+      });
+      table.appendChild(tbody);
+      wrap.appendChild(table);
+      host.appendChild(wrap);
+
+      // Encoding / scaling info
+      const t2 = document.createElement('div');
+      t2.className = 'section-title';
+      t2.textContent = 'Transform details';
+      host.appendChild(t2);
+
+      const grid = document.createElement('div');
+      grid.className = 'info-grid';
+
+      Object.entries(result.encoding_info).forEach(([col, mapping]) => {
+        const card = document.createElement('div');
+        card.className = 'info-card';
+        card.innerHTML = `<h3>${escHtml(col)} — label encoding</h3>`;
+        Object.entries(mapping).forEach(([k, v]) => {
+          card.innerHTML += `<div class="mapping-row"><span>${escHtml(k)}</span><span>${v}</span></div>`;
+        });
+        grid.appendChild(card);
+      });
+
+      Object.entries(result.scaling_info).forEach(([col, stats]) => {
+        const card = document.createElement('div');
+        card.className = 'info-card';
+        card.innerHTML = `
+          <h3>${escHtml(col)} — standard scaling</h3>
+          <div class="scale-row"><span>Mean</span><span>${stats.mean}</span></div>
+          <div class="scale-row"><span>Std</span><span>${stats.std}</span></div>`;
+        grid.appendChild(card);
+      });
+
+      host.appendChild(grid);
+    }
+  </script>
+</body>
+</html>

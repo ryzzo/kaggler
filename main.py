@@ -30,6 +30,11 @@ def analysis_page():
     return FileResponse("static/analysis.html")
 
 
+@app.get("/preparation")
+def preparation_page():
+    return FileResponse("static/preparation.html")
+
+
 def process_csv(content: bytes) -> dict[str, Any]:
     text = content.decode("utf-8", errors="replace")
     reader = csv.DictReader(io.StringIO(text))
@@ -323,6 +328,95 @@ def analyze(req: AnalyzeRequest):
         "feature_analysis": feature_analysis,
         "correlation_matrix": {"columns": num_keys, "values": corr_matrix},
     })
+
+
+def _label_encode(values: list[str]) -> tuple[list[int], dict[str, int]]:
+    uniques = sorted(set(values))
+    mapping = {v: i for i, v in enumerate(uniques)}
+    return [mapping[v] for v in values], mapping
+
+
+def _standard_scale(nums: list[float]) -> tuple[list[float], float, float]:
+    mean = sum(nums) / len(nums)
+    std = math.sqrt(sum((x - mean) ** 2 for x in nums) / len(nums))
+    if std == 0:
+        std = 1.0
+    return [round((x - mean) / std, 6) for x in nums], round(mean, 6), round(std, 6)
+
+
+class PrepareRequest(BaseModel):
+    file_id: str
+    features: list[str]
+    label: str
+    column_kinds: dict[str, str] = {}
+
+
+@app.post("/prepare")
+def prepare(req: PrepareRequest):
+    matches = list(UPLOAD_DIR.glob(f"{req.file_id}.csv"))
+    if not matches:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    text = matches[0].read_text(encoding="utf-8", errors="replace")
+    reader = csv.DictReader(io.StringIO(text))
+    rows = list(reader)
+    all_cols = set(reader.fieldnames or [])
+
+    missing_cols = (set(req.features) | {req.label}) - all_cols
+    if missing_cols:
+        raise HTTPException(status_code=400, detail=f"Unknown columns: {sorted(missing_cols)}")
+
+    cols = [*req.features, req.label]
+    prepared: dict[str, list[float]] = {}
+    encoding_info: dict[str, dict[str, int]] = {}
+    scaling_info: dict[str, dict[str, float]] = {}
+
+    for col in cols:
+        raw_values = [r[col] for r in rows]
+        kind = req.column_kinds.get(col) or ("numeric" if _to_float(raw_values) is not None else "categorical")
+
+        if kind == "categorical":
+            filled = [v if v.strip() != "" else "__missing__" for v in raw_values]
+            encoded, mapping = _label_encode(filled)
+            prepared[col] = [float(v) for v in encoded]
+            encoding_info[col] = mapping
+        else:
+            nums = [float(v) if v.strip() != "" else None for v in raw_values]
+            present = [v for v in nums if v is not None]
+            mean = sum(present) / len(present) if present else 0.0
+            filled_nums = [v if v is not None else mean for v in nums]
+            scaled, mean_r, std_r = _standard_scale(filled_nums)
+            prepared[col] = scaled
+            scaling_info[col] = {"mean": mean_r, "std": std_r}
+
+    file_id = str(uuid.uuid4())
+    save_path = UPLOAD_DIR / f"{file_id}_prepared.csv"
+    with save_path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(cols)
+        for i in range(len(rows)):
+            writer.writerow([prepared[col][i] for col in cols])
+
+    preview = [{col: prepared[col][i] for col in cols} for i in range(min(10, len(rows)))]
+
+    return JSONResponse({
+        "file_id": req.file_id,
+        "prepared_file_id": file_id,
+        "row_count": len(rows),
+        "columns": cols,
+        "encoding_info": encoding_info,
+        "scaling_info": scaling_info,
+        "preview": preview,
+        "download_url": f"/download/prepared/{file_id}",
+    })
+
+
+@app.get("/download/prepared/{file_id}")
+def download_prepared(file_id: str):
+    path = UPLOAD_DIR / f"{file_id}_prepared.csv"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(path, media_type="text/csv", filename="prepared_data.csv")
 
 
 @app.get("/health")
