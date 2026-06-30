@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Data Training</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, sans-serif;
+      background: #0f1117; color: #e2e8f0;
+      min-height: 100vh; padding: 0 24px 60px;
+      max-width: 1100px; margin: 0 auto;
+    }
+
+    .main-nav {
+      position: sticky; top: 0; z-index: 60;
+      background: #0f1117cc; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid #1e2430;
+      display: flex; align-items: center; gap: 0;
+      margin: 0 -24px; padding: 0 24px;
+    }
+    .main-nav a {
+      padding: 14px 20px; font-size: .88rem; font-weight: 600;
+      color: #64748b; text-decoration: none; white-space: nowrap;
+      border-bottom: 2px solid transparent; margin-bottom: -1px;
+      transition: color .15s, border-color .15s;
+    }
+    .main-nav a:hover { color: #cbd5e1; }
+    .main-nav a.active { color: #a5b4fc; border-bottom-color: #6366f1; }
+
+    .top-bar { display: flex; align-items: center; gap: 16px; margin-bottom: 28px; padding-top: 16px; }
+    h1 { font-size: 1.5rem; font-weight: 700; }
+    .subtitle { color: #64748b; font-size: .85rem; margin-top: 2px; }
+
+    .placeholder {
+      text-align: center; padding: 80px 20px;
+      color: #475569; font-size: .95rem;
+    }
+    .placeholder svg { width: 48px; height: 48px; color: #334155; margin-bottom: 16px; }
+
+    .summary-card {
+      background: #111827; border: 1px solid #1e2030; border-radius: 12px;
+      padding: 18px 20px; margin-bottom: 24px;
+    }
+    .summary-card h3 { font-size: .82rem; color: #cbd5e1; margin-bottom: 10px; }
+    .summary-row { display: flex; justify-content: space-between; font-size: .8rem; color: #94a3b8; padding: 4px 0; }
+    .summary-row span:last-child { color: #e2e8f0; font-weight: 600; }
+    .col-chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .col-chip { font-size: .72rem; background: #1e1b4b; color: #a5b4fc; padding: 3px 9px; border-radius: 999px; }
+    .download-link { color: #a5b4fc; text-decoration: none; font-size: .8rem; font-weight: 600; }
+    .download-link:hover { text-decoration: underline; }
+
+    #error-msg { color: #fca5a5; font-size: .95rem; padding: 40px 0; text-align: center; }
+
+    .section-title {
+      font-size: .72rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .07em; color: #475569; margin: 36px 0 14px;
+      padding-bottom: 8px; border-bottom: 1px solid #1e2430;
+    }
+
+    .task-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: .75rem; font-weight: 700; padding: 3px 10px; border-radius: 999px;
+    }
+    .task-badge.classification { background: #3b1f5e; color: #c4b5fd; }
+    .task-badge.regression     { background: #1e3a5f; color: #93c5fd; }
+
+    .btn {
+      background: #4f46e5; color: #fff; border: none; border-radius: 8px;
+      padding: 10px 20px; font-size: .85rem; font-weight: 600; cursor: pointer;
+      transition: background .15s;
+    }
+    .btn:hover { background: #4338ca; }
+    .btn:disabled { background: #2d3748; cursor: not-allowed; }
+
+    .model-table { width: 100%; border-collapse: collapse; background: #111827; border-radius: 10px; overflow: hidden; border: 1px solid #1e2030; }
+    .model-table th, .model-table td { padding: 10px 14px; text-align: left; font-size: .82rem; border-bottom: 1px solid #1e2430; }
+    .model-table th { color: #64748b; font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; font-weight: 700; }
+    .model-table tr:last-child td { border-bottom: none; }
+    .model-name { font-weight: 600; color: #e2e8f0; }
+    .metric-error { color: #fca5a5; font-size: .78rem; }
+    .best-row { background: #0d1f17; }
+    .best-badge { font-size: .65rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; padding: 2px 7px; border-radius: 999px; background: #064e3b; color: #6ee7b7; margin-left: 8px; }
+  </style>
+</head>
+<body>
+  <nav class="main-nav">
+    <a href="/">Data Collection</a>
+    <a href="/analysis">Data Exploration</a>
+    <a href="/preparation">Data Preparation</a>
+    <a href="/training" class="active">Data Training</a>
+  </nav>
+
+  <div class="top-bar">
+    <div>
+      <h1>Data Training</h1>
+      <div class="subtitle">Train and evaluate a model on your prepared data.</div>
+    </div>
+  </div>
+
+  <div id="content"></div>
+
+  <script>
+    function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+    const content = document.getElementById('content');
+    const raw = sessionStorage.getItem('preparedData');
+
+    if (!raw) {
+      content.innerHTML = `<div id="error-msg">
+        No prepared dataset found. <a class="download-link" href="/preparation">Go run Data Preparation first</a>.
+      </div>`;
+    } else {
+      const data = JSON.parse(raw);
+      const label = data.columns[data.columns.length - 1];
+      const isCategorical = Object.prototype.hasOwnProperty.call(data.encoding_info || {}, label);
+      const labelKind = isCategorical ? 'categorical' : 'numeric';
+      const taskType = isCategorical ? 'classification' : 'regression';
+
+      const card = document.createElement('div');
+      card.className = 'summary-card';
+      card.innerHTML = `
+        <h3>Prepared dataset ready</h3>
+        <div class="summary-row"><span>Rows</span><span>${data.row_count}</span></div>
+        <div class="summary-row"><span>Columns</span><span>${data.columns.length}</span></div>
+        <div class="summary-row"><span>Download</span><span><a class="download-link" href="${data.download_url}" download>prepared_data.csv</a></span></div>
+        <div class="col-chip-row">${data.columns.map(c => `<span class="col-chip">${escHtml(c)}</span>`).join('')}</div>`;
+      content.appendChild(card);
+
+      const labelTitle = document.createElement('div');
+      labelTitle.className = 'section-title';
+      labelTitle.textContent = 'Nature of label';
+      content.appendChild(labelTitle);
+
+      const labelCard = document.createElement('div');
+      labelCard.className = 'summary-card';
+      labelCard.innerHTML = `
+        <div class="summary-row">
+          <span>Label — ${escHtml(label)}</span>
+          <span><span class="task-badge ${taskType}">${labelKind} &rarr; ${taskType}</span></span>
+        </div>
+        <div class="summary-row" style="margin-top:6px"><span style="color:#64748b">
+          ${isCategorical
+            ? 'Label was label-encoded from categorical values, so this trains classifiers.'
+            : 'Label is numeric (standard-scaled), so this trains regressors.'}
+        </span></div>`;
+      content.appendChild(labelCard);
+
+      const trainTitle = document.createElement('div');
+      trainTitle.className = 'section-title';
+      trainTitle.textContent = 'Train models';
+      content.appendChild(trainTitle);
+
+      const trainBtn = document.createElement('button');
+      trainBtn.className = 'btn';
+      trainBtn.textContent = `Train GradientBoosting, LightGBM & CatBoost (${taskType})`;
+      content.appendChild(trainBtn);
+
+      const resultsHost = document.createElement('div');
+      content.appendChild(resultsHost);
+
+      trainBtn.addEventListener('click', async () => {
+        trainBtn.disabled = true;
+        trainBtn.textContent = 'Training…';
+        resultsHost.innerHTML = '';
+        try {
+          const resp = await fetch('/train', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              prepared_file_id: data.prepared_file_id,
+              columns: data.columns,
+              label,
+              label_kind: labelKind,
+            }),
+          });
+          if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            if (resp.status === 404) {
+              throw new Error('STALE_FILE');
+            }
+            throw new Error(err.detail || `Request failed (${resp.status})`);
+          }
+          const result = await resp.json();
+          renderResults(resultsHost, result);
+        } catch (e) {
+          if (e.message === 'STALE_FILE') {
+            resultsHost.innerHTML = `<div id="error-msg" style="padding:20px 0">
+              The prepared file is no longer on the server (only the most recent upload is kept).
+              <br><a class="download-link" href="/preparation">&larr; Go re-run Data Preparation</a>
+            </div>`;
+          } else {
+            resultsHost.innerHTML = `<div id="error-msg" style="padding:20px 0">${escHtml(e.message)}</div>`;
+          }
+        } finally {
+          trainBtn.disabled = false;
+          trainBtn.textContent = `Train GradientBoosting, LightGBM & CatBoost (${taskType})`;
+        }
+      });
+    }
+
+    const MODEL_LABELS = { gradient_boosting: 'GradientBoosting', lightgbm: 'LightGBM', catboost: 'CatBoost' };
+
+    function renderResults(host, result) {
+      host.innerHTML = '';
+      const note = document.createElement('div');
+      note.className = 'summary-row';
+      note.style.cssText = 'color:#64748b;font-size:.8rem;margin-bottom:10px';
+      note.textContent = `Trained on ${result.n_train} rows, evaluated on ${result.n_test} rows · task: ${result.task_type} · features: ${result.feature_columns.length}`;
+      host.appendChild(note);
+
+      if (result.excluded_id_columns && result.excluded_id_columns.length) {
+        const idNote = document.createElement('div');
+        idNote.style.cssText = 'color:#64748b;font-size:.78rem;margin-bottom:14px';
+        idNote.textContent = `Excluded as identifier column${result.excluded_id_columns.length>1?'s':''}: ${result.excluded_id_columns.join(', ')}`;
+        host.appendChild(idNote);
+      }
+
+      const metricKeys = result.task_type === 'classification'
+        ? [['accuracy', 'Accuracy'], ['f1_weighted', 'F1 (weighted)']]
+        : [['rmse', 'RMSE'], ['mae', 'MAE'], ['r2', 'R²']];
+
+      // pick the best model: highest accuracy/r2, or lowest rmse if no r2 available
+      const rankKey = result.task_type === 'classification' ? 'accuracy' : 'r2';
+      const rankHigherIsBetter = true;
+      let bestModel = null, bestScore = null;
+      Object.entries(result.results).forEach(([name, m]) => {
+        if (m.error || m[rankKey] == null) return;
+        if (bestScore === null || (rankHigherIsBetter ? m[rankKey] > bestScore : m[rankKey] < bestScore)) {
+          bestScore = m[rankKey]; bestModel = name;
+        }
+      });
+
+      const table = document.createElement('table');
+      table.className = 'model-table';
+      table.innerHTML = `<thead><tr><th>Model</th>${metricKeys.map(([,l]) => `<th>${l}</th>`).join('')}</tr></thead>`;
+      const tbody = document.createElement('tbody');
+      Object.entries(result.results).forEach(([name, m]) => {
+        const tr = document.createElement('tr');
+        if (name === bestModel) tr.className = 'best-row';
+        const label = `${MODEL_LABELS[name] || name}${name === bestModel ? '<span class="best-badge">best</span>' : ''}`;
+        if (m.error) {
+          tr.innerHTML = `<td class="model-name">${label}</td><td colspan="${metricKeys.length}" class="metric-error">${escHtml(m.error)}</td>`;
+        } else {
+          tr.innerHTML = `<td class="model-name">${label}</td>${metricKeys.map(([k]) => `<td>${m[k]}</td>`).join('')}`;
+        }
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      host.appendChild(table);
+
+      // ── Voting ensembles ──
+      const ensembles = result.ensemble_results || [];
+      if (ensembles.length) {
+        const ensTitle = document.createElement('div');
+        ensTitle.className = 'section-title';
+        ensTitle.textContent = 'Voting ensembles (model combinations)';
+        host.appendChild(ensTitle);
+
+        let bestEns = null, bestEnsScore = null;
+        ensembles.forEach(e => {
+          const score = e[rankKey];
+          if (score == null) return;
+          if (bestEnsScore === null || score > bestEnsScore) { bestEnsScore = score; bestEns = e; }
+        });
+
+        const ensTable = document.createElement('table');
+        ensTable.className = 'model-table';
+        ensTable.innerHTML = `<thead><tr><th>Models</th><th>Voting</th>${metricKeys.map(([,l]) => `<th>${l}</th>`).join('')}</tr></thead>`;
+        const ensBody = document.createElement('tbody');
+        ensembles.forEach(e => {
+          const tr = document.createElement('tr');
+          if (e === bestEns) tr.className = 'best-row';
+          const names = e.models.map(n => MODEL_LABELS[n] || n).join(' + ');
+          const votingLabel = e.voting === 'hard' ? 'Hard' : e.voting === 'soft' ? 'Soft' : 'Average';
+          const isBest = e === bestEns ? '<span class="best-badge">best</span>' : '';
+          tr.innerHTML = `<td class="model-name">${escHtml(names)}${isBest}</td><td>${votingLabel}</td>${metricKeys.map(([k]) => `<td>${e[k]}</td>`).join('')}`;
+          ensBody.appendChild(tr);
+        });
+        ensTable.appendChild(ensBody);
+        host.appendChild(ensTable);
+      }
+    }
+  </script>
+</body>
+</html>

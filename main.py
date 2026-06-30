@@ -1,20 +1,31 @@
 import io
 import csv
 import math
+import re
 import uuid
 from collections import Counter
+from itertools import combinations
 from pathlib import Path
 from typing import Any
 
 import uvicorn
+import numpy as np
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from PIL import Image
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import GradientBoostingClassifier, GradientBoostingRegressor
+from sklearn.metrics import accuracy_score, f1_score, mean_squared_error, mean_absolute_error, r2_score
+from lightgbm import LGBMClassifier, LGBMRegressor
+from catboost import CatBoostClassifier, CatBoostRegressor
 
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
+
+PREPARED_DIR = Path("prepared")
+PREPARED_DIR.mkdir(exist_ok=True)
 
 app = FastAPI(title="File Processing API", version="1.0.0")
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -33,6 +44,11 @@ def analysis_page():
 @app.get("/preparation")
 def preparation_page():
     return FileResponse("static/preparation.html")
+
+
+@app.get("/training")
+def training_page():
+    return FileResponse("static/training.html")
 
 
 def process_csv(content: bytes) -> dict[str, Any]:
@@ -390,7 +406,7 @@ def prepare(req: PrepareRequest):
             scaling_info[col] = {"mean": mean_r, "std": std_r}
 
     file_id = str(uuid.uuid4())
-    save_path = UPLOAD_DIR / f"{file_id}_prepared.csv"
+    save_path = PREPARED_DIR / f"{file_id}.csv"
     with save_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(cols)
@@ -413,10 +429,136 @@ def prepare(req: PrepareRequest):
 
 @app.get("/download/prepared/{file_id}")
 def download_prepared(file_id: str):
-    path = UPLOAD_DIR / f"{file_id}_prepared.csv"
+    path = PREPARED_DIR / f"{file_id}.csv"
     if not path.exists():
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(path, media_type="text/csv", filename="prepared_data.csv")
+
+
+class TrainRequest(BaseModel):
+    prepared_file_id: str
+    columns: list[str]
+    label: str
+    label_kind: str  # "numeric" -> regression, "categorical" -> classification
+
+
+_ID_COL_RE = re.compile(r"^id$|^id[_-]|[_-]id$", re.IGNORECASE)
+
+
+@app.post("/train")
+def train(req: TrainRequest):
+    path = PREPARED_DIR / f"{req.prepared_file_id}.csv"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Prepared file not found")
+    if req.label not in req.columns:
+        raise HTTPException(status_code=400, detail="Label is not in columns")
+    excluded_id_cols = [c for c in req.columns if c != req.label and _ID_COL_RE.search(c.strip())]
+    feature_cols = [c for c in req.columns if c != req.label and c not in excluded_id_cols]
+    if not feature_cols:
+        raise HTTPException(status_code=400, detail="No feature columns to train on")
+    if req.label_kind not in ("numeric", "categorical"):
+        raise HTTPException(status_code=400, detail="label_kind must be 'numeric' or 'categorical'")
+
+    text = path.read_text(encoding="utf-8")
+    reader = csv.DictReader(io.StringIO(text))
+    rows = list(reader)
+    if len(rows) < 5:
+        raise HTTPException(status_code=400, detail="Not enough rows to train/test split")
+
+    X = np.array([[float(r[c]) for c in feature_cols] for r in rows])
+    is_classification = req.label_kind == "categorical"
+    y_raw = np.array([float(r[req.label]) for r in rows])
+    y = y_raw.astype(int) if is_classification else y_raw
+
+    stratify = None
+    if is_classification:
+        counts = Counter(y.tolist())
+        if len(counts) > 1 and min(counts.values()) >= 2:
+            stratify = y
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42, stratify=stratify
+    )
+
+    if is_classification:
+        models = {
+            "gradient_boosting": GradientBoostingClassifier(random_state=42),
+            "lightgbm": LGBMClassifier(random_state=42, verbose=-1),
+            "catboost": CatBoostClassifier(random_state=42, verbose=False),
+        }
+    else:
+        models = {
+            "gradient_boosting": GradientBoostingRegressor(random_state=42),
+            "lightgbm": LGBMRegressor(random_state=42, verbose=-1),
+            "catboost": CatBoostRegressor(random_state=42, verbose=False),
+        }
+
+    results = {}
+    test_preds: dict[str, np.ndarray] = {}
+    test_probas: dict[str, np.ndarray] = {}
+    classes_: np.ndarray | None = None
+    for name, model in models.items():
+        try:
+            model.fit(X_train, y_train)
+            preds = np.asarray(model.predict(X_test)).ravel()
+            test_preds[name] = preds
+            if is_classification:
+                results[name] = {
+                    "accuracy": round(float(accuracy_score(y_test, preds)), 4),
+                    "f1_weighted": round(float(f1_score(y_test, preds, average="weighted")), 4),
+                }
+                proba = model.predict_proba(X_test)
+                if classes_ is None:
+                    classes_ = np.asarray(model.classes_)
+                if np.array_equal(np.asarray(model.classes_), classes_):
+                    test_probas[name] = np.asarray(proba)
+            else:
+                results[name] = {
+                    "rmse": round(float(math.sqrt(mean_squared_error(y_test, preds))), 4),
+                    "mae": round(float(mean_absolute_error(y_test, preds)), 4),
+                    "r2": round(float(r2_score(y_test, preds)), 4),
+                }
+        except Exception as exc:
+            results[name] = {"error": str(exc)}
+
+    # ── Voting ensembles over every combination of 2+ successfully trained models ──
+    ok_names = [n for n in models if n in test_preds]
+    ensemble_results = []
+    for r in (2, 3):
+        for combo in combinations(ok_names, r):
+            if r > len(ok_names):
+                continue
+            if is_classification:
+                # soft voting: average predicted class probabilities across member models
+                if all(n in test_probas for n in combo):
+                    avg_proba = np.mean([test_probas[n] for n in combo], axis=0)
+                    soft_pred = classes_[np.argmax(avg_proba, axis=1)]
+                    ensemble_results.append({
+                        "models": list(combo),
+                        "voting": "soft",
+                        "accuracy": round(float(accuracy_score(y_test, soft_pred)), 4),
+                        "f1_weighted": round(float(f1_score(y_test, soft_pred, average="weighted")), 4),
+                    })
+            else:
+                avg_pred = np.mean([test_preds[n] for n in combo], axis=0)
+                ensemble_results.append({
+                    "models": list(combo),
+                    "voting": "average",
+                    "rmse": round(float(math.sqrt(mean_squared_error(y_test, avg_pred))), 4),
+                    "mae": round(float(mean_absolute_error(y_test, avg_pred)), 4),
+                    "r2": round(float(r2_score(y_test, avg_pred)), 4),
+                })
+
+    return JSONResponse({
+        "task_type": "classification" if is_classification else "regression",
+        "label": req.label,
+        "feature_columns": feature_cols,
+        "excluded_id_columns": excluded_id_cols,
+        "n_train": len(X_train),
+        "n_test": len(X_test),
+        "results": results,
+        "ensemble_results": ensemble_results,
+    })
 
 
 @app.get("/health")

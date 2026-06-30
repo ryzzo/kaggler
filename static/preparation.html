@@ -86,6 +86,17 @@
     #error-msg { color: #fca5a5; font-size: .95rem; padding: 40px 0; text-align: center; }
     .download-link { color: #a5b4fc; text-decoration: none; font-size: .85rem; font-weight: 600; }
     .download-link:hover { text-decoration: underline; }
+
+    .next-banner {
+      display: flex; align-items: center; justify-content: space-between;
+      background: #1e1b4b; border: 1px solid #312e81; border-radius: 10px;
+      padding: 12px 18px; margin-top: 28px; gap: 12px;
+      text-decoration: none; transition: background .15s, border-color .15s;
+    }
+    .next-banner:hover { background: #252159; border-color: #4338ca; }
+    .next-banner-text { font-size: .88rem; color: #c7d2fe; }
+    .next-banner-text strong { color: #e0e7ff; }
+    .next-banner-arrow { color: #6366f1; font-size: 1.1rem; flex-shrink: 0; }
   </style>
 </head>
 <body>
@@ -93,6 +104,7 @@
     <a href="/">Data Collection</a>
     <a href="/analysis">Data Exploration</a>
     <a href="/preparation" class="active">Data Preparation</a>
+    <a href="/training">Data Training</a>
   </nav>
 
   <div class="top-bar">
@@ -124,6 +136,14 @@
       content.innerHTML = '';
       document.getElementById('subtitle').textContent =
         `${data.row_count} rows · ${data.features.length} feature${data.features.length!==1?'s':''} · label: ${data.label.name}`;
+
+      const topBanner = document.createElement('a');
+      topBanner.className = 'next-banner';
+      topBanner.href = '/training';
+      topBanner.innerHTML = `
+        <span class="next-banner-text">Next: <strong>Data Training</strong></span>
+        <span class="next-banner-arrow">&rarr;</span>`;
+      content.appendChild(topBanner);
 
       const title = document.createElement('div');
       title.className = 'section-title';
@@ -198,6 +218,7 @@
             throw new Error(err.detail || `Request failed (${resp.status})`);
           }
           const result = await resp.json();
+          sessionStorage.setItem('preparedData', JSON.stringify(result));
           renderResults(resultsHost, result);
         } catch (e) {
           if (e.message === 'STALE_FILE') {
@@ -272,6 +293,14 @@
       });
 
       host.appendChild(grid);
+
+      const banner = document.createElement('a');
+      banner.className = 'next-banner';
+      banner.href = '/training';
+      banner.innerHTML = `
+        <span class="next-banner-text">Next: <strong>Data Training</strong></span>
+        <span class="next-banner-arrow">&rarr;</span>`;
+      host.appendChild(banner);
     }
   </script>
 </body>
