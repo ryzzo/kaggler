@@ -6,6 +6,9 @@ __pycache__/
 
 # Uploads
 uploads/
+prepared/
+
+catboost_info
 
 # Env
 .env
