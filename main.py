@@ -10,6 +10,7 @@ from typing import Any
 
 import uvicorn
 import numpy as np
+import joblib
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -26,6 +27,9 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 
 PREPARED_DIR = Path("prepared")
 PREPARED_DIR.mkdir(exist_ok=True)
+
+MODELS_DIR = Path("models")
+MODELS_DIR.mkdir(exist_ok=True)
 
 app = FastAPI(title="File Processing API", version="1.0.0")
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -549,6 +553,29 @@ def train(req: TrainRequest):
                     "r2": round(float(r2_score(y_test, avg_pred)), 4),
                 })
 
+    # ── Persist the two best-performing base models ──
+    rank_metric = "accuracy" if is_classification else "r2"
+    ranked = sorted(
+        ((name, results[name][rank_metric]) for name in results if "error" not in results[name]),
+        key=lambda item: item[1],
+        reverse=True,
+    )
+    saved_models = []
+    for name, score in ranked[:2]:
+        bundle = {
+            "model": models[name],
+            "model_name": name,
+            "task_type": "classification" if is_classification else "regression",
+            "feature_columns": feature_cols,
+            "label": req.label,
+            "label_kind": req.label_kind,
+            "metric": rank_metric,
+            "score": score,
+        }
+        filename = f"{req.prepared_file_id}__{name}.joblib"
+        joblib.dump(bundle, MODELS_DIR / filename)
+        saved_models.append({"model": name, "metric": rank_metric, "score": score, "filename": filename})
+
     return JSONResponse({
         "task_type": "classification" if is_classification else "regression",
         "label": req.label,
@@ -558,6 +585,7 @@ def train(req: TrainRequest):
         "n_test": len(X_test),
         "results": results,
         "ensemble_results": ensemble_results,
+        "saved_models": saved_models,
     })
 
 

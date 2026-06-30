@@ -1,0 +1,53 @@
+[33mcommit 6eee1fb4c93c1e96192592cfeefb481e69a0e382[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m
+Author: Ryzzo <rabarybrian@gmail.com>
+Date:   Tue Jun 30 10:43:45 2026 +0000
+
+    Apply updated .gitignore
+
+[33mcommit d7e13a3437ed6cc0f520941e0f22f918dcd5c027[m[33m ([m[1;31morigin/main[m[33m)[m
+Author: Ryzzo <rabarybrian@gmail.com>
+Date:   Tue Jun 30 10:40:49 2026 +0000
+
+    feat: creating data training. The training using GradiantBoosting, LightGBM and XGBoost. Also addition of the soft voting. Also with the necessary UI
+
+[33mcommit 287c1e195dd4eb98a65f0e470be02e6a58956df8[m
+Author: Ryzzo <rabarybrian@gmail.com>
+Date:   Tue Jun 30 09:45:32 2026 +0000
+
+    feat: create data preparation page. perform standard scaling of numerical data and label encoding for categorical data
+
+[33mcommit d4632cdbb5ea79180d82ade6a629e847fb906981[m
+Author: Ryzzo <rabarybrian@gmail.com>
+Date:   Wed Jun 24 05:34:12 2026 +0000
+
+    feat: added the indication of missing values
+
+[33mcommit cf06686f0cd8d1b4944fe384a5142a8140e9ea2b[m
+Author: Ryzzo <rabarybrian@gmail.com>
+Date:   Wed Jun 24 05:29:21 2026 +0000
+
+    fix: created the nav bar for easy navigation
+
+[33mcommit 4070f6b185bfc8efdeba7a00b8b8fdcad79ab6f0[m
+Author: Ryzzo <rabarybrian@gmail.com>
+Date:   Wed Jun 24 05:20:49 2026 +0000
+
+    fix: remove previous upload before saving a new one
+
+[33mcommit f44e8ad2c6c04a017a646bef82f586361a5fb9d5[m
+Author: Ryzzo <rabarybrian@gmail.com>
+Date:   Fri Jun 19 15:21:46 2026 +0000
+
+    fix: create two columns for numeric and object columns
+
+[33mcommit af3e4d104d10589f413cfcf81218113d664c78a7[m
+Author: Ryzzo <rabarybrian@gmail.com>
+Date:   Fri Jun 19 14:41:49 2026 +0000
+
+    feat: add data analysis page with charts and correlation heatmap
+
+[33mcommit ac91bf8fff90862e7ded7355c47c0aa55ad5f833[m
+Author: Ryzzo <rabarybrian@gmail.com>
+Date:   Fri Jun 19 14:20:00 2026 +0000
+
+    feat: add file processing API with drag-and-drop UI

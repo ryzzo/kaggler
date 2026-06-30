@@ -251,6 +251,24 @@
       table.appendChild(tbody);
       host.appendChild(table);
 
+      // ── Saved models ──
+      if (result.saved_models && result.saved_models.length) {
+        const savedTitle = document.createElement('div');
+        savedTitle.className = 'section-title';
+        savedTitle.textContent = 'Saved models';
+        host.appendChild(savedTitle);
+
+        const savedCard = document.createElement('div');
+        savedCard.className = 'summary-card';
+        result.saved_models.forEach(s => {
+          savedCard.innerHTML += `<div class="summary-row">
+            <span>${MODEL_LABELS[s.model] || s.model} (${s.metric}: ${s.score})</span>
+            <span style="font-weight:400;color:#64748b">${escHtml(s.filename)}</span>
+          </div>`;
+        });
+        host.appendChild(savedCard);
+      }
+
       // ── Voting ensembles ──
       const ensembles = result.ensemble_results || [];
       if (ensembles.length) {
