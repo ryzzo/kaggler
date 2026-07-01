@@ -23,6 +23,7 @@ from PIL import Image
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import GradientBoostingClassifier, GradientBoostingRegressor
 from sklearn.metrics import accuracy_score, f1_score, mean_squared_error, mean_absolute_error, r2_score
+from sklearn.neighbors import KNeighborsRegressor, KNeighborsClassifier
 from lightgbm import LGBMClassifier, LGBMRegressor
 from catboost import CatBoostClassifier, CatBoostRegressor
 
@@ -111,6 +112,10 @@ MODELS_DIR.mkdir(exist_ok=True)
 
 PREDICTIONS_DIR = Path("predictions")
 PREDICTIONS_DIR.mkdir(exist_ok=True)
+
+# In-memory analysis cache: populated by /analyze, consumed by /prepare.
+# Keys are file_ids; automatically cleared on server restart.
+_analysis_cache: dict[str, dict] = {}
 
 app = FastAPI(title="File Processing API", version="1.0.0")
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -466,6 +471,18 @@ def analyze(req: AnalyzeRequest):
                 ],
             }
 
+    all_cols_list = [*req.features, req.label]
+    _analysis_cache[req.file_id] = {
+        "numeric_cols":     [c for c in all_cols_list if c in numeric_cols],
+        "categorical_cols": [c for c in all_cols_list if c not in numeric_cols],
+        "missing_pct": {
+            col: round(_missing_count(raw[col]) / len(rows) * 100, 2)
+            for col in all_cols_list
+        },
+        "missingness_correlation": missingness_correlation,
+        "row_count": len(rows),
+    }
+
     return JSONResponse({
         "file_id": req.file_id,
         "row_count": len(rows),
@@ -481,6 +498,172 @@ def _label_encode(values: list[str]) -> tuple[list[int], dict[str, int]]:
     uniques = sorted(set(values))
     mapping = {v: i for i, v in enumerate(uniques)}
     return [mapping[v] for v in values], mapping
+
+
+def _impute_missing(
+    rows: list[dict[str, str]],
+    cols: list[str],
+    column_kinds: dict[str, str],
+    file_id: str,
+) -> dict[str, dict]:
+    """
+    Impute missing values in `rows` (mutates in-place) before encoding/scaling.
+    Returns imputation_info dict describing the method used per column.
+    """
+    cache = _analysis_cache.get(file_id, {})
+    missing_pct_cache: dict[str, float] = cache.get("missing_pct", {})
+    miss_corr_cache: dict[str, dict] = cache.get("missingness_correlation", {})
+    n = len(rows)
+    imputation_info: dict[str, dict] = {}
+
+    def _is_blank(v: str) -> bool:
+        return v.strip() == ""
+
+    def _missing_count_col(col: str) -> int:
+        return sum(1 for r in rows if _is_blank(r[col]))
+
+    def _col_mean(col: str) -> float:
+        vals = [float(r[col]) for r in rows if not _is_blank(r[col])]
+        return sum(vals) / len(vals) if vals else 0.0
+
+    # Identify numeric feature columns with very low missingness — used as KNN features
+    def _knn_feature_cols(exclude: str) -> list[str]:
+        return [
+            c for c in cols
+            if c != exclude
+            and column_kinds.get(c, "numeric") == "numeric"
+            and _missing_count_col(c) / n < 0.05
+        ]
+
+    def _max_abs_r(col: str) -> float:
+        top = miss_corr_cache.get(col, {}).get("top_correlations", [])
+        return max((abs(e["r"]) for e in top), default=0.0)
+
+    def _knn_fill(col: str, kind: str, missing_count: int, missing_pct: float) -> dict:
+        feat_cols = _knn_feature_cols(col)
+        if len(feat_cols) < 1:
+            # fallback: median/mode
+            if kind == "numeric":
+                vals = sorted(float(r[col]) for r in rows if not _is_blank(r[col]))
+                fill = vals[len(vals) // 2] if vals else 0.0
+                for r in rows:
+                    if _is_blank(r[col]):
+                        r[col] = str(fill)
+                return {"method": "median_fallback", "value": round(fill, 6),
+                        "missing_count": missing_count, "missing_pct": missing_pct,
+                        "note": "KNN skipped — no usable numeric feature columns; used median instead"}
+            else:
+                cnt = Counter(r[col] for r in rows if not _is_blank(r[col]))
+                fill = cnt.most_common(1)[0][0] if cnt else ""
+                for r in rows:
+                    if _is_blank(r[col]):
+                        r[col] = fill
+                return {"method": "mode_fallback", "value": fill,
+                        "missing_count": missing_count, "missing_pct": missing_pct,
+                        "note": "KNN skipped — no usable numeric feature columns; used mode instead"}
+
+        col_means = {c: _col_mean(c) for c in feat_cols}
+
+        # Donor rows: target col is present
+        donor_rows = [r for r in rows if not _is_blank(r[col])]
+
+        # Well-distributed sample: sort by first feature then evenly stride
+        if len(donor_rows) > 5000:
+            donor_rows.sort(key=lambda r: float(r[feat_cols[0]]) if not _is_blank(r[feat_cols[0]]) else col_means[feat_cols[0]])
+            step = len(donor_rows) / 5000
+            donor_rows = [donor_rows[int(i * step)] for i in range(5000)]
+
+        def row_to_x(r: dict[str, str]) -> list[float]:
+            return [float(r[c]) if not _is_blank(r[c]) else col_means[c] for c in feat_cols]
+
+        X_donor = [row_to_x(r) for r in donor_rows]
+
+        if kind == "numeric":
+            y_donor = [float(r[col]) for r in donor_rows]
+            knn = KNeighborsRegressor(n_neighbors=min(5, len(donor_rows)))
+            knn.fit(X_donor, y_donor)
+            for r in rows:
+                if _is_blank(r[col]):
+                    pred = float(knn.predict([row_to_x(r)])[0])
+                    r[col] = str(round(pred, 6))
+        else:
+            y_donor = [r[col] for r in donor_rows]
+            if len(set(y_donor)) < 2:
+                cnt = Counter(y_donor)
+                fill = cnt.most_common(1)[0][0]
+                for r in rows:
+                    if _is_blank(r[col]):
+                        r[col] = fill
+                return {"method": "mode_fallback", "value": fill,
+                        "missing_count": missing_count, "missing_pct": missing_pct,
+                        "note": "KNN skipped — only one class in donors; used mode instead"}
+            knn = KNeighborsClassifier(n_neighbors=min(5, len(donor_rows)))
+            knn.fit(X_donor, y_donor)
+            for r in rows:
+                if _is_blank(r[col]):
+                    r[col] = str(knn.predict([row_to_x(r)])[0])
+
+        return {
+            "method": "knn",
+            "k": min(5, len(donor_rows)),
+            "n_donors": len(donor_rows),
+            "knn_features": feat_cols,
+            "missing_count": missing_count,
+            "missing_pct": missing_pct,
+        }
+
+    for col in cols:
+        mc = _missing_count_col(col)
+        if mc == 0:
+            continue
+        pct = round(mc / n * 100, 2)
+        kind = column_kinds.get(col, "numeric")
+        max_r = _max_abs_r(col)
+        is_weak = max_r < 0.4
+
+        if pct > 30:
+            imputation_info[col] = {
+                "method": "skipped",
+                "missing_count": mc,
+                "missing_pct": pct,
+                "note": f">{pct}% missing — too high for automatic imputation; blanks encoded as __missing__",
+            }
+        elif pct < 5:
+            if kind == "numeric" and is_weak:
+                vals = sorted(float(r[col]) for r in rows if not _is_blank(r[col]))
+                fill = vals[len(vals) // 2] if vals else 0.0
+                for r in rows:
+                    if _is_blank(r[col]):
+                        r[col] = str(fill)
+                imputation_info[col] = {
+                    "method": "median",
+                    "value": round(fill, 6),
+                    "missing_count": mc,
+                    "missing_pct": pct,
+                    "max_missingness_r": round(max_r, 4),
+                }
+            elif kind == "numeric" and not is_weak:
+                # strong correlation → KNN even for <5%
+                imputation_info[col] = _knn_fill(col, kind, mc, pct)
+                imputation_info[col]["note"] = f"Missingness correlated (max |r|={round(max_r,4)}) — used KNN instead of median"
+            else:
+                # categorical <5%
+                cnt = Counter(r[col] for r in rows if not _is_blank(r[col]))
+                fill = cnt.most_common(1)[0][0] if cnt else ""
+                for r in rows:
+                    if _is_blank(r[col]):
+                        r[col] = fill
+                imputation_info[col] = {
+                    "method": "mode",
+                    "value": fill,
+                    "missing_count": mc,
+                    "missing_pct": pct,
+                }
+        else:
+            # 5–30% → KNN
+            imputation_info[col] = _knn_fill(col, kind, mc, pct)
+
+    return imputation_info
 
 
 def _standard_scale(nums: list[float]) -> tuple[list[float], float, float]:
@@ -514,13 +697,25 @@ def prepare(req: PrepareRequest):
         raise HTTPException(status_code=400, detail=f"Unknown columns: {sorted(missing_cols)}")
 
     cols = [*req.features, req.label]
+
+    # Resolve column kinds before imputation (same logic as below)
+    column_kinds: dict[str, str] = {}
+    for col in cols:
+        raw_values = [r[col] for r in rows]
+        column_kinds[col] = req.column_kinds.get(col) or (
+            "numeric" if _to_float(raw_values) is not None else "categorical"
+        )
+
+    # Impute missing values in-place before encoding/scaling
+    imputation_info = _impute_missing(rows, cols, column_kinds, req.file_id)
+
     prepared: dict[str, list[float]] = {}
     encoding_info: dict[str, dict[str, int]] = {}
     scaling_info: dict[str, dict[str, float]] = {}
 
     for col in cols:
         raw_values = [r[col] for r in rows]
-        kind = req.column_kinds.get(col) or ("numeric" if _to_float(raw_values) is not None else "categorical")
+        kind = column_kinds[col]
 
         if kind == "categorical":
             filled = [v if v.strip() != "" else "__missing__" for v in raw_values]
@@ -553,6 +748,7 @@ def prepare(req: PrepareRequest):
         "columns": cols,
         "encoding_info": encoding_info,
         "scaling_info": scaling_info,
+        "imputation_info": imputation_info,
         "preview": preview,
         "download_url": f"/download/prepared/{file_id}",
     })

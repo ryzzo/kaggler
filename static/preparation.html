@@ -332,6 +332,62 @@
 
       host.appendChild(grid);
 
+      // ── Imputation info ──
+      const imp = result.imputation_info || {};
+      const impCols = Object.keys(imp);
+      if (impCols.length > 0) {
+        const t3 = document.createElement('div');
+        t3.className = 'section-title';
+        t3.textContent = 'Missing data imputation';
+        host.appendChild(t3);
+
+        const METHOD_META = {
+          median:          { label: 'Median fill',     color: '#1e3a5f', text: '#93c5fd' },
+          mode:            { label: 'Mode fill',       color: '#1e3a2f', text: '#6ee7b7' },
+          knn:             { label: 'KNN imputation',  color: '#3b1f5e', text: '#c4b5fd' },
+          median_fallback: { label: 'Median (KNN fallback)', color: '#2d2a1e', text: '#fde68a' },
+          mode_fallback:   { label: 'Mode (KNN fallback)',   color: '#2d2a1e', text: '#fde68a' },
+          skipped:         { label: 'Skipped (>30%)',  color: '#2d1b1b', text: '#fca5a5' },
+        };
+
+        const impGrid = document.createElement('div');
+        impGrid.className = 'info-grid';
+
+        impCols.forEach(col => {
+          const info = imp[col];
+          const meta = METHOD_META[info.method] || { label: info.method, color: '#1e2430', text: '#94a3b8' };
+          const card = document.createElement('div');
+          card.className = 'info-card';
+          card.innerHTML = `
+            <h3 style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+              <span>${escHtml(col)}</span>
+              <span style="font-size:.65rem;font-weight:700;padding:2px 8px;border-radius:999px;background:${meta.color};color:${meta.text}">${meta.label}</span>
+            </h3>
+            <div class="scale-row"><span>Missing</span><span>${info.missing_count.toLocaleString()} rows (${info.missing_pct}%)</span></div>`;
+
+          if (info.method === 'median' || info.method === 'median_fallback') {
+            card.innerHTML += `<div class="scale-row"><span>Fill value</span><span>${info.value}</span></div>`;
+            if (info.max_missingness_r != null)
+              card.innerHTML += `<div class="scale-row"><span>Max |r| of missingness</span><span>${info.max_missingness_r}</span></div>`;
+          } else if (info.method === 'mode' || info.method === 'mode_fallback') {
+            card.innerHTML += `<div class="scale-row"><span>Fill value</span><span>${escHtml(String(info.value))}</span></div>`;
+          } else if (info.method === 'knn') {
+            card.innerHTML += `
+              <div class="scale-row"><span>K neighbours</span><span>${info.k}</span></div>
+              <div class="scale-row"><span>Donor sample</span><span>${info.n_donors.toLocaleString()} rows</span></div>
+              <div class="scale-row"><span>Features used</span><span>${info.knn_features.length}</span></div>
+              <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px">
+                ${info.knn_features.map(f => `<span style="font-size:.65rem;background:#1e1b4b;color:#a5b4fc;padding:2px 7px;border-radius:999px">${escHtml(f)}</span>`).join('')}
+              </div>`;
+          }
+          if (info.note) {
+            card.innerHTML += `<div style="color:#64748b;font-size:.72rem;margin-top:8px">${escHtml(info.note)}</div>`;
+          }
+          impGrid.appendChild(card);
+        });
+        host.appendChild(impGrid);
+      }
+
       const banner = document.createElement('a');
       banner.className = 'next-banner';
       banner.href = '/training';
