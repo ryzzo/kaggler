@@ -505,16 +505,19 @@ def _impute_missing(
     cols: list[str],
     column_kinds: dict[str, str],
     file_id: str,
-) -> dict[str, dict]:
+) -> tuple[dict[str, dict], dict[str, dict]]:
     """
     Impute missing values in `rows` (mutates in-place) before encoding/scaling.
-    Returns imputation_info dict describing the method used per column.
+    Returns (imputation_info, imputation_params):
+      - imputation_info: human-readable metadata for the UI
+      - imputation_params: serialisable bundle applied identically at inference
+        Each entry: {"method": ..., "value"/"model"/"feature_cols"/"col_means": ...}
     """
     cache = _analysis_cache.get(file_id, {})
-    missing_pct_cache: dict[str, float] = cache.get("missing_pct", {})
     miss_corr_cache: dict[str, dict] = cache.get("missingness_correlation", {})
     n = len(rows)
     imputation_info: dict[str, dict] = {}
+    imputation_params: dict[str, dict] = {}
 
     def _is_blank(v: str) -> bool:
         return v.strip() == ""
@@ -526,7 +529,6 @@ def _impute_missing(
         vals = [float(r[col]) for r in rows if not _is_blank(r[col])]
         return sum(vals) / len(vals) if vals else 0.0
 
-    # Identify numeric feature columns with very low missingness — used as KNN features
     def _knn_feature_cols(exclude: str) -> list[str]:
         return [
             c for c in cols
@@ -539,35 +541,39 @@ def _impute_missing(
         top = miss_corr_cache.get(col, {}).get("top_correlations", [])
         return max((abs(e["r"]) for e in top), default=0.0)
 
+    def _apply_median(col: str, fill: float) -> None:
+        for r in rows:
+            if _is_blank(r[col]):
+                r[col] = str(fill)
+
+    def _apply_mode(col: str, fill: str) -> None:
+        for r in rows:
+            if _is_blank(r[col]):
+                r[col] = fill
+
     def _knn_fill(col: str, kind: str, missing_count: int, missing_pct: float) -> dict:
         feat_cols = _knn_feature_cols(col)
         if len(feat_cols) < 1:
-            # fallback: median/mode
             if kind == "numeric":
                 vals = sorted(float(r[col]) for r in rows if not _is_blank(r[col]))
                 fill = vals[len(vals) // 2] if vals else 0.0
-                for r in rows:
-                    if _is_blank(r[col]):
-                        r[col] = str(fill)
+                _apply_median(col, fill)
+                imputation_params[col] = {"method": "median_fallback", "value": fill}
                 return {"method": "median_fallback", "value": round(fill, 6),
                         "missing_count": missing_count, "missing_pct": missing_pct,
                         "note": "KNN skipped — no usable numeric feature columns; used median instead"}
             else:
                 cnt = Counter(r[col] for r in rows if not _is_blank(r[col]))
                 fill = cnt.most_common(1)[0][0] if cnt else ""
-                for r in rows:
-                    if _is_blank(r[col]):
-                        r[col] = fill
+                _apply_mode(col, fill)
+                imputation_params[col] = {"method": "mode_fallback", "value": fill}
                 return {"method": "mode_fallback", "value": fill,
                         "missing_count": missing_count, "missing_pct": missing_pct,
                         "note": "KNN skipped — no usable numeric feature columns; used mode instead"}
 
         col_means = {c: _col_mean(c) for c in feat_cols}
-
-        # Donor rows: target col is present
         donor_rows = [r for r in rows if not _is_blank(r[col])]
 
-        # Well-distributed sample: sort by first feature then evenly stride
         if len(donor_rows) > 5000:
             donor_rows.sort(key=lambda r: float(r[feat_cols[0]]) if not _is_blank(r[feat_cols[0]]) else col_means[feat_cols[0]])
             step = len(donor_rows) / 5000
@@ -580,20 +586,18 @@ def _impute_missing(
 
         if kind == "numeric":
             y_donor = [float(r[col]) for r in donor_rows]
-            knn = KNeighborsRegressor(n_neighbors=min(5, len(donor_rows)))
+            knn: Any = KNeighborsRegressor(n_neighbors=min(5, len(donor_rows)))
             knn.fit(X_donor, y_donor)
             for r in rows:
                 if _is_blank(r[col]):
-                    pred = float(knn.predict([row_to_x(r)])[0])
-                    r[col] = str(round(pred, 6))
+                    r[col] = str(round(float(knn.predict([row_to_x(r)])[0]), 6))
         else:
             y_donor = [r[col] for r in donor_rows]
             if len(set(y_donor)) < 2:
                 cnt = Counter(y_donor)
                 fill = cnt.most_common(1)[0][0]
-                for r in rows:
-                    if _is_blank(r[col]):
-                        r[col] = fill
+                _apply_mode(col, fill)
+                imputation_params[col] = {"method": "mode_fallback", "value": fill}
                 return {"method": "mode_fallback", "value": fill,
                         "missing_count": missing_count, "missing_pct": missing_pct,
                         "note": "KNN skipped — only one class in donors; used mode instead"}
@@ -603,6 +607,12 @@ def _impute_missing(
                 if _is_blank(r[col]):
                     r[col] = str(knn.predict([row_to_x(r)])[0])
 
+        imputation_params[col] = {
+            "method": "knn",
+            "model": knn,
+            "feature_cols": feat_cols,
+            "col_means": col_means,
+        }
         return {
             "method": "knn",
             "k": min(5, len(donor_rows)),
@@ -623,47 +633,37 @@ def _impute_missing(
 
         if pct > 30:
             imputation_info[col] = {
-                "method": "skipped",
-                "missing_count": mc,
-                "missing_pct": pct,
+                "method": "skipped", "missing_count": mc, "missing_pct": pct,
                 "note": f">{pct}% missing — too high for automatic imputation; blanks encoded as __missing__",
             }
+            imputation_params[col] = {"method": "skipped"}
         elif pct < 5:
             if kind == "numeric" and is_weak:
                 vals = sorted(float(r[col]) for r in rows if not _is_blank(r[col]))
                 fill = vals[len(vals) // 2] if vals else 0.0
-                for r in rows:
-                    if _is_blank(r[col]):
-                        r[col] = str(fill)
+                _apply_median(col, fill)
                 imputation_info[col] = {
-                    "method": "median",
-                    "value": round(fill, 6),
-                    "missing_count": mc,
-                    "missing_pct": pct,
+                    "method": "median", "value": round(fill, 6),
+                    "missing_count": mc, "missing_pct": pct,
                     "max_missingness_r": round(max_r, 4),
                 }
+                imputation_params[col] = {"method": "median", "value": fill}
             elif kind == "numeric" and not is_weak:
-                # strong correlation → KNN even for <5%
                 imputation_info[col] = _knn_fill(col, kind, mc, pct)
                 imputation_info[col]["note"] = f"Missingness correlated (max |r|={round(max_r,4)}) — used KNN instead of median"
             else:
-                # categorical <5%
                 cnt = Counter(r[col] for r in rows if not _is_blank(r[col]))
                 fill = cnt.most_common(1)[0][0] if cnt else ""
-                for r in rows:
-                    if _is_blank(r[col]):
-                        r[col] = fill
+                _apply_mode(col, fill)
                 imputation_info[col] = {
-                    "method": "mode",
-                    "value": fill,
-                    "missing_count": mc,
-                    "missing_pct": pct,
+                    "method": "mode", "value": fill,
+                    "missing_count": mc, "missing_pct": pct,
                 }
+                imputation_params[col] = {"method": "mode", "value": fill}
         else:
-            # 5–30% → KNN
             imputation_info[col] = _knn_fill(col, kind, mc, pct)
 
-    return imputation_info
+    return imputation_info, imputation_params
 
 
 def _standard_scale(nums: list[float]) -> tuple[list[float], float, float]:
@@ -707,7 +707,11 @@ def prepare(req: PrepareRequest):
         )
 
     # Impute missing values in-place before encoding/scaling
-    imputation_info = _impute_missing(rows, cols, column_kinds, req.file_id)
+    imputation_info, imputation_params = _impute_missing(rows, cols, column_kinds, req.file_id)
+
+    # Persist imputation params bundle (fitted models + fill values) for inference
+    imp_id = str(uuid.uuid4())
+    joblib.dump(imputation_params, PREPARED_DIR / f"{imp_id}__imputation.joblib")
 
     # Save the clean (imputed, untransformed) CSV for inspection and training reuse
     clean_id = str(uuid.uuid4())
@@ -757,6 +761,7 @@ def prepare(req: PrepareRequest):
         "file_id": req.file_id,
         "prepared_file_id": file_id,
         "clean_file_id": clean_id,
+        "imputation_params_id": imp_id,
         "row_count": len(rows),
         "columns": cols,
         "encoding_info": encoding_info,
@@ -999,6 +1004,41 @@ async def train_stream(job_id: str):
     )
 
 
+def _apply_imputation_params(
+    rows: list[dict[str, str]],
+    imputation_params: dict[str, dict],
+) -> int:
+    """Apply saved imputation params to test rows in-place. Returns count of filled cells."""
+    filled = 0
+
+    def _is_blank(v: str) -> bool:
+        return v.strip() == ""
+
+    for col, params in imputation_params.items():
+        method = params.get("method", "skipped")
+        if method == "skipped":
+            continue
+        for r in rows:
+            if col not in r or not _is_blank(r[col]):
+                continue
+            if method in ("median", "median_fallback"):
+                r[col] = str(params["value"])
+                filled += 1
+            elif method in ("mode", "mode_fallback"):
+                r[col] = str(params["value"])
+                filled += 1
+            elif method == "knn":
+                feat_cols: list[str] = params["feature_cols"]
+                col_means: dict[str, float] = params["col_means"]
+                knn_model = params["model"]
+                x = [float(r[c]) if c in r and not _is_blank(r[c]) else col_means.get(c, 0.0)
+                     for c in feat_cols]
+                pred = knn_model.predict([x])[0]
+                r[col] = str(round(float(pred), 6)) if isinstance(pred, (int, float)) else str(pred)
+                filled += 1
+    return filled
+
+
 @app.post("/infer")
 async def infer(
     file: UploadFile = File(...),
@@ -1008,6 +1048,7 @@ async def infer(
     task_type: str = Form(...),
     encoding_info: str = Form(...),
     scaling_info: str = Form(...),
+    imputation_params_id: str = Form(default=""),
 ):
     model_path = MODELS_DIR / model_filename
     if not model_path.exists():
@@ -1022,6 +1063,13 @@ async def infer(
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON in form fields")
 
+    # Load imputation params if provided
+    imp_params: dict[str, dict] = {}
+    if imputation_params_id:
+        imp_path = PREPARED_DIR / f"{imputation_params_id}__imputation.joblib"
+        if imp_path.exists():
+            imp_params = joblib.load(imp_path)
+
     content = await file.read()
     if not content:
         raise HTTPException(status_code=400, detail="Empty file")
@@ -1035,6 +1083,9 @@ async def infer(
     missing_cols = set(feats) - set(fieldnames)
     if missing_cols:
         raise HTTPException(status_code=400, detail=f"Test file is missing required columns: {sorted(missing_cols)}")
+
+    # Apply same imputation used during training
+    imputed_cells = _apply_imputation_params(rows, imp_params) if imp_params else 0
 
     unseen_categories = 0
     X = []
@@ -1110,6 +1161,7 @@ async def infer(
         "model_used": bundle.get("model_name"),
         "prediction_column": pred_col,
         "unseen_categories": unseen_categories,
+        "imputed_cells": imputed_cells,
         "columns": out_cols,
         "preview": preview,
         "download_url": f"/download/predictions/{pred_id}",

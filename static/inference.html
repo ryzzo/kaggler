@@ -247,6 +247,9 @@
             form.append('task_type', training.task_type);
             form.append('encoding_info', JSON.stringify(prepared.encoding_info || {}));
             form.append('scaling_info', JSON.stringify(prepared.scaling_info || {}));
+            if (prepared.imputation_params_id) {
+              form.append('imputation_params_id', prepared.imputation_params_id);
+            }
 
             const resp = await fetch('/infer', { method: 'POST', body: form });
             if (!resp.ok) {
@@ -285,6 +288,12 @@
       note.textContent = `Predicted ${result.row_count} rows with ${MODEL_LABELS(result.model_used)}`;
       host.appendChild(note);
 
+      if (result.imputed_cells > 0) {
+        const imp = document.createElement('div');
+        imp.style.cssText = 'color:#6ee7b7;font-size:.78rem;padding:4px 0';
+        imp.textContent = `${result.imputed_cells} missing cell(s) filled using the imputation methods from training (median / mode / KNN).`;
+        host.appendChild(imp);
+      }
       if (result.unseen_categories > 0) {
         const warn = document.createElement('div');
         warn.className = 'warn-note';
