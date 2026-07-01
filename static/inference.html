@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Inference</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, sans-serif;
+      background: #0f1117; color: #e2e8f0;
+      min-height: 100vh; padding: 0 24px 60px;
+      max-width: 1100px; margin: 0 auto;
+    }
+
+    .main-nav {
+      position: sticky; top: 0; z-index: 60;
+      background: #0f1117cc; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid #1e2430;
+      display: flex; align-items: center; gap: 0;
+      margin: 0 -24px; padding: 0 24px;
+    }
+    .main-nav a {
+      padding: 14px 20px; font-size: .88rem; font-weight: 600;
+      color: #64748b; text-decoration: none; white-space: nowrap;
+      border-bottom: 2px solid transparent; margin-bottom: -1px;
+      transition: color .15s, border-color .15s;
+    }
+    .main-nav a:hover { color: #cbd5e1; }
+    .main-nav a.active { color: #a5b4fc; border-bottom-color: #6366f1; }
+
+    .top-bar { display: flex; align-items: center; gap: 16px; margin-bottom: 28px; padding-top: 16px; }
+    h1 { font-size: 1.5rem; font-weight: 700; }
+    .subtitle { color: #64748b; font-size: .85rem; margin-top: 2px; }
+
+    .section-title {
+      font-size: .72rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .07em; color: #475569; margin: 36px 0 14px;
+      padding-bottom: 8px; border-bottom: 1px solid #1e2430;
+    }
+
+    .summary-card {
+      background: #111827; border: 1px solid #1e2030; border-radius: 12px;
+      padding: 18px 20px; margin-bottom: 24px;
+    }
+    .summary-card h3 { font-size: .82rem; color: #cbd5e1; margin-bottom: 10px; }
+    .summary-row { display: flex; justify-content: space-between; font-size: .8rem; color: #94a3b8; padding: 4px 0; }
+    .summary-row span:last-child { color: #e2e8f0; font-weight: 600; }
+    .col-chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .col-chip { font-size: .72rem; background: #1e1b4b; color: #a5b4fc; padding: 3px 9px; border-radius: 999px; }
+
+    .task-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: .75rem; font-weight: 700; padding: 3px 10px; border-radius: 999px;
+    }
+    .task-badge.classification { background: #3b1f5e; color: #c4b5fd; }
+    .task-badge.regression     { background: #1e3a5f; color: #93c5fd; }
+
+    #drop-zone {
+      border: 2px dashed #334155; border-radius: 16px;
+      padding: 40px 24px; text-align: center; cursor: pointer;
+      transition: border-color .2s, background .2s; background: #1e2430;
+    }
+    #drop-zone.over { border-color: #6366f1; background: #1e2430cc; }
+    #drop-zone svg { width: 36px; height: 36px; color: #475569; margin-bottom: 12px; }
+    #drop-zone p { color: #94a3b8; font-size: .9rem; }
+    #drop-zone .browse { color: #6366f1; font-weight: 600; cursor: pointer; }
+    #drop-zone .browse:hover { text-decoration: underline; }
+    #file-input { display: none; }
+    .file-chip { display: inline-flex; align-items: center; gap: 8px; background: #1e2430; border: 1px solid #2d3748; border-radius: 8px; padding: 8px 14px; font-size: .82rem; color: #cbd5e1; margin-top: 12px; }
+
+    .btn {
+      background: #4f46e5; color: #fff; border: none; border-radius: 8px;
+      padding: 10px 20px; font-size: .85rem; font-weight: 600; cursor: pointer;
+      transition: background .15s; margin-top: 16px;
+    }
+    .btn:hover { background: #4338ca; }
+    .btn:disabled { background: #2d3748; cursor: not-allowed; }
+
+    .result-table-wrap { overflow-x: auto; background: #111827; border-radius: 10px; border: 1px solid #1e2030; }
+    .result-table { border-collapse: collapse; width: 100%; }
+    .result-table th, .result-table td { padding: 8px 12px; font-size: .78rem; text-align: right; white-space: nowrap; border-bottom: 1px solid #1e2430; }
+    .result-table th { color: #93c5fd; font-weight: 700; text-align: right; }
+    .result-table td:first-child, .result-table th:first-child { text-align: left; color: #64748b; }
+    .result-table th.pred-col, .result-table td.pred-col { color: #6ee7b7; }
+
+    .download-link { color: #a5b4fc; text-decoration: none; font-size: .85rem; font-weight: 600; }
+    .download-link:hover { text-decoration: underline; }
+
+    .warn-note { color: #fbbf24; font-size: .78rem; padding: 8px 0; }
+
+    #error-msg { color: #fca5a5; font-size: .95rem; padding: 40px 0; text-align: center; }
+  </style>
+</head>
+<body>
+  <nav class="main-nav">
+    <a href="/">Data Collection</a>
+    <a href="/analysis">Data Exploration</a>
+    <a href="/preparation">Data Preparation</a>
+    <a href="/training">Data Training</a>
+    <a href="/inference" class="active">Inference</a>
+  </nav>
+
+  <div class="top-bar">
+    <div>
+      <h1>Inference</h1>
+      <div class="subtitle">Upload a test CSV and generate predictions with the best-performing trained model.</div>
+    </div>
+  </div>
+
+  <div id="content"></div>
+
+  <script>
+    function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+    const content = document.getElementById('content');
+    const trainingRaw = sessionStorage.getItem('trainingData');
+    const preparedRaw = sessionStorage.getItem('preparedData');
+
+    if (!trainingRaw || !preparedRaw) {
+      content.innerHTML = `<div id="error-msg">
+        No trained model found. <a class="download-link" href="/training">Go run Data Training first</a>.
+      </div>`;
+    } else {
+      const training = JSON.parse(trainingRaw);
+      const prepared = JSON.parse(preparedRaw);
+
+      const savedModels = training.saved_models || [];
+      if (!savedModels.length) {
+        content.innerHTML = `<div id="error-msg">
+          No saved models from the last training run. <a class="download-link" href="/training">Go re-run Data Training</a>.
+        </div>`;
+      } else {
+        const bestModel = [...savedModels].sort((a, b) => b.score - a.score)[0];
+
+        const card = document.createElement('div');
+        card.className = 'summary-card';
+        card.innerHTML = `
+          <h3>Best performing model</h3>
+          <div class="summary-row">
+            <span>${MODEL_LABELS(bestModel.model)}</span>
+            <span><span class="task-badge ${training.task_type}">${bestModel.metric}: ${bestModel.score}</span></span>
+          </div>
+          <div class="summary-row"><span>Label</span><span>${escHtml(training.label)}</span></div>
+          <div class="summary-row"><span>Required feature columns</span><span>${training.feature_columns.length}</span></div>
+          <div class="col-chip-row">${training.feature_columns.map(c => `<span class="col-chip">${escHtml(c)}</span>`).join('')}</div>`;
+        content.appendChild(card);
+
+        const uploadTitle = document.createElement('div');
+        uploadTitle.className = 'section-title';
+        uploadTitle.textContent = 'Upload test.csv';
+        content.appendChild(uploadTitle);
+
+        const dropZone = document.createElement('div');
+        dropZone.id = 'drop-zone';
+        dropZone.innerHTML = `
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+              d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/>
+          </svg>
+          <p>Drop test.csv here or <span class="browse">browse</span></p>
+          <input type="file" id="file-input" accept=".csv" />
+          <div id="file-chip-host"></div>`;
+        content.appendChild(dropZone);
+
+        const inferBtn = document.createElement('button');
+        inferBtn.className = 'btn';
+        inferBtn.textContent = 'Run inference';
+        inferBtn.disabled = true;
+        content.appendChild(inferBtn);
+
+        const resultsHost = document.createElement('div');
+        content.appendChild(resultsHost);
+
+        let selectedFile = null;
+        const fileInput = dropZone.querySelector('#file-input');
+        const chipHost = dropZone.querySelector('#file-chip-host');
+
+        function setFile(file) {
+          selectedFile = file;
+          inferBtn.disabled = !file;
+          chipHost.innerHTML = file
+            ? `<div class="file-chip">${escHtml(file.name)} · ${(file.size/1024).toFixed(1)} KB</div>`
+            : '';
+        }
+
+        dropZone.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', e => setFile(e.target.files[0] || null));
+        dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('over'); });
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('over'));
+        dropZone.addEventListener('drop', e => {
+          e.preventDefault();
+          dropZone.classList.remove('over');
+          const file = e.dataTransfer.files[0];
+          if (file) setFile(file);
+        });
+
+        inferBtn.addEventListener('click', async () => {
+          if (!selectedFile) return;
+          inferBtn.disabled = true;
+          inferBtn.textContent = 'Running inference…';
+          resultsHost.innerHTML = '';
+          try {
+            const form = new FormData();
+            form.append('file', selectedFile);
+            form.append('model_filename', bestModel.filename);
+            form.append('feature_columns', JSON.stringify(training.feature_columns));
+            form.append('label', training.label);
+            form.append('task_type', training.task_type);
+            form.append('encoding_info', JSON.stringify(prepared.encoding_info || {}));
+            form.append('scaling_info', JSON.stringify(prepared.scaling_info || {}));
+
+            const resp = await fetch('/infer', { method: 'POST', body: form });
+            if (!resp.ok) {
+              const err = await resp.json().catch(() => ({}));
+              if (resp.status === 404) throw new Error('STALE_MODEL');
+              throw new Error(err.detail || `Request failed (${resp.status})`);
+            }
+            const result = await resp.json();
+            renderResults(resultsHost, result);
+          } catch (e) {
+            if (e.message === 'STALE_MODEL') {
+              resultsHost.innerHTML = `<div id="error-msg" style="padding:20px 0">
+                The saved model is no longer on the server. <br>
+                <a class="download-link" href="/training">&larr; Go re-run Data Training</a>
+              </div>`;
+            } else {
+              resultsHost.innerHTML = `<div id="error-msg" style="padding:20px 0">${escHtml(e.message)}</div>`;
+            }
+          } finally {
+            inferBtn.disabled = false;
+            inferBtn.textContent = 'Run inference';
+          }
+        });
+      }
+    }
+
+    function MODEL_LABELS(name) {
+      return { gradient_boosting: 'GradientBoosting', lightgbm: 'LightGBM', catboost: 'CatBoost' }[name] || name;
+    }
+
+    function renderResults(host, result) {
+      host.innerHTML = '';
+
+      const note = document.createElement('div');
+      note.style.cssText = 'color:#64748b;font-size:.8rem;margin-bottom:6px';
+      note.textContent = `Predicted ${result.row_count} rows with ${MODEL_LABELS(result.model_used)}`;
+      host.appendChild(note);
+
+      if (result.unseen_categories > 0) {
+        const warn = document.createElement('div');
+        warn.className = 'warn-note';
+        warn.textContent = `${result.unseen_categories} categorical value(s) in the test file were not seen during training and were treated as unknown.`;
+        host.appendChild(warn);
+      }
+
+      const dlRow = document.createElement('div');
+      dlRow.style.cssText = 'margin:10px 0 18px';
+      dlRow.innerHTML = `<a class="download-link" href="${result.download_url}" download>&darr; Download predictions.csv (${result.row_count} rows)</a>`;
+      host.appendChild(dlRow);
+
+      const t1 = document.createElement('div');
+      t1.className = 'section-title';
+      t1.textContent = `Preview (first ${result.preview.length} rows)`;
+      host.appendChild(t1);
+
+      const wrap = document.createElement('div');
+      wrap.className = 'result-table-wrap';
+      const table = document.createElement('table');
+      table.className = 'result-table';
+      table.innerHTML = `<thead><tr>${result.columns.map(c =>
+        `<th class="${c === result.prediction_column ? 'pred-col' : ''}">${escHtml(c)}</th>`).join('')}</tr></thead>`;
+      const tbody = document.createElement('tbody');
+      result.preview.forEach(row => {
+        tbody.innerHTML += `<tr>${result.columns.map(c =>
+          `<td class="${c === result.prediction_column ? 'pred-col' : ''}">${escHtml(row[c])}</td>`).join('')}</tr>`;
+      });
+      table.appendChild(tbody);
+      wrap.appendChild(table);
+      host.appendChild(wrap);
+    }
+  </script>
+</body>
+</html>

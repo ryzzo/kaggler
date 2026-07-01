@@ -1,5 +1,6 @@
 import io
 import csv
+import json
 import math
 import re
 import uuid
@@ -11,7 +12,7 @@ from typing import Any
 import uvicorn
 import numpy as np
 import joblib
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, Form, UploadFile, HTTPException
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -30,6 +31,9 @@ PREPARED_DIR.mkdir(exist_ok=True)
 
 MODELS_DIR = Path("models")
 MODELS_DIR.mkdir(exist_ok=True)
+
+PREDICTIONS_DIR = Path("predictions")
+PREDICTIONS_DIR.mkdir(exist_ok=True)
 
 app = FastAPI(title="File Processing API", version="1.0.0")
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -53,6 +57,11 @@ def preparation_page():
 @app.get("/training")
 def training_page():
     return FileResponse("static/training.html")
+
+
+@app.get("/inference")
+def inference_page():
+    return FileResponse("static/inference.html")
 
 
 def process_csv(content: bytes) -> dict[str, Any]:
@@ -587,6 +596,119 @@ def train(req: TrainRequest):
         "ensemble_results": ensemble_results,
         "saved_models": saved_models,
     })
+
+
+@app.post("/infer")
+async def infer(
+    file: UploadFile = File(...),
+    model_filename: str = Form(...),
+    feature_columns: str = Form(...),
+    label: str = Form(...),
+    task_type: str = Form(...),
+    encoding_info: str = Form(...),
+    scaling_info: str = Form(...),
+):
+    model_path = MODELS_DIR / model_filename
+    if not model_path.exists():
+        raise HTTPException(status_code=404, detail="Model not found")
+    bundle = joblib.load(model_path)
+    model = bundle["model"]
+
+    try:
+        feats: list[str] = json.loads(feature_columns)
+        enc: dict[str, dict[str, int]] = json.loads(encoding_info)
+        scale: dict[str, dict[str, float]] = json.loads(scaling_info)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON in form fields")
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Empty file")
+    text = content.decode("utf-8", errors="replace")
+    reader = csv.DictReader(io.StringIO(text))
+    rows = list(reader)
+    if not rows:
+        raise HTTPException(status_code=400, detail="No rows in file")
+
+    fieldnames = reader.fieldnames or []
+    missing_cols = set(feats) - set(fieldnames)
+    if missing_cols:
+        raise HTTPException(status_code=400, detail=f"Test file is missing required columns: {sorted(missing_cols)}")
+
+    unseen_categories = 0
+    X = []
+    for r in rows:
+        vec = []
+        for c in feats:
+            raw_v = r.get(c, "")
+            if c in enc:
+                mapping = enc[c]
+                key = raw_v if raw_v.strip() != "" else "__missing__"
+                if key in mapping:
+                    code = mapping[key]
+                else:
+                    code = -1
+                    unseen_categories += 1
+                vec.append(float(code))
+            else:
+                stats = scale.get(c)
+                mean = stats["mean"] if stats else 0.0
+                try:
+                    num = float(raw_v) if raw_v.strip() != "" else mean
+                except ValueError:
+                    num = mean
+                if stats:
+                    std = stats["std"] or 1.0
+                    vec.append((num - mean) / std)
+                else:
+                    vec.append(num)
+        X.append(vec)
+
+    X = np.array(X)
+    raw_preds = model.predict(X)
+
+    if task_type == "classification" and label in enc:
+        inv_map = {v: k for k, v in enc[label].items()}
+        predictions = [inv_map.get(int(round(float(p))), str(p)) for p in raw_preds]
+    elif task_type == "regression" and label in scale:
+        mean = scale[label]["mean"]
+        std = scale[label]["std"]
+        predictions = [round(float(p) * std + mean, 6) for p in raw_preds]
+    else:
+        predictions = [float(p) for p in raw_preds]
+
+    pred_col = f"{label}_prediction"
+    out_cols = fieldnames + [pred_col]
+    pred_id = str(uuid.uuid4())
+    save_path = PREDICTIONS_DIR / f"{pred_id}.csv"
+    with save_path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(out_cols)
+        for r, p in zip(rows, predictions):
+            writer.writerow([r.get(c, "") for c in fieldnames] + [p])
+
+    preview = [
+        {**{c: r.get(c, "") for c in fieldnames}, pred_col: p}
+        for r, p in list(zip(rows, predictions))[:10]
+    ]
+
+    return JSONResponse({
+        "row_count": len(rows),
+        "model_used": bundle.get("model_name"),
+        "prediction_column": pred_col,
+        "unseen_categories": unseen_categories,
+        "columns": out_cols,
+        "preview": preview,
+        "download_url": f"/download/predictions/{pred_id}",
+    })
+
+
+@app.get("/download/predictions/{pred_id}")
+def download_predictions(pred_id: str):
+    path = PREDICTIONS_DIR / f"{pred_id}.csv"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(path, media_type="text/csv", filename="predictions.csv")
 
 
 @app.get("/health")

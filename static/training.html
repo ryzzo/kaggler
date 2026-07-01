@@ -83,6 +83,17 @@
     .metric-error { color: #fca5a5; font-size: .78rem; }
     .best-row { background: #0d1f17; }
     .best-badge { font-size: .65rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; padding: 2px 7px; border-radius: 999px; background: #064e3b; color: #6ee7b7; margin-left: 8px; }
+
+    .next-banner {
+      display: flex; align-items: center; justify-content: space-between;
+      background: #1e1b4b; border: 1px solid #312e81; border-radius: 10px;
+      padding: 12px 18px; margin-top: 28px; gap: 12px;
+      text-decoration: none; transition: background .15s, border-color .15s;
+    }
+    .next-banner:hover { background: #252159; border-color: #4338ca; }
+    .next-banner-text { font-size: .88rem; color: #c7d2fe; }
+    .next-banner-text strong { color: #e0e7ff; }
+    .next-banner-arrow { color: #6366f1; font-size: 1.1rem; flex-shrink: 0; }
   </style>
 </head>
 <body>
@@ -91,6 +102,7 @@
     <a href="/analysis">Data Exploration</a>
     <a href="/preparation">Data Preparation</a>
     <a href="/training" class="active">Data Training</a>
+    <a href="/inference">Inference</a>
   </nav>
 
   <div class="top-bar">
@@ -184,6 +196,7 @@
             throw new Error(err.detail || `Request failed (${resp.status})`);
           }
           const result = await resp.json();
+          sessionStorage.setItem('trainingData', JSON.stringify({ ...result, label_kind: labelKind }));
           renderResults(resultsHost, result);
         } catch (e) {
           if (e.message === 'STALE_FILE') {
@@ -299,6 +312,16 @@
         });
         ensTable.appendChild(ensBody);
         host.appendChild(ensTable);
+      }
+
+      if (result.saved_models && result.saved_models.length) {
+        const banner = document.createElement('a');
+        banner.className = 'next-banner';
+        banner.href = '/inference';
+        banner.innerHTML = `
+          <span class="next-banner-text">Next: <strong>Inference</strong> — upload test.csv and predict with the best model</span>
+          <span class="next-banner-arrow">&rarr;</span>`;
+        host.appendChild(banner);
       }
     }
   </script>
