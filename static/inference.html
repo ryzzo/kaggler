@@ -336,6 +336,15 @@
       wrap.appendChild(table);
       host.appendChild(wrap);
     }
+
+    // Data Collection resets all progress — confirm before navigating
+    document.querySelector('.main-nav a[href="/"]').addEventListener('click', function(e) {
+      e.preventDefault();
+      if (confirm('Going to Data Collection will clear all current progress (preparation, training, inference). Continue?')) {
+        sessionStorage.clear();
+        window.location.href = '/';
+      }
+    });
   </script>
 </body>
 </html>

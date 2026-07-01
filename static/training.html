@@ -282,6 +282,39 @@
       const resultsHost = document.createElement('div');
       content.appendChild(resultsHost);
 
+      // Restore previous training results if available
+      const existingTrainRaw = sessionStorage.getItem('trainingData');
+      if (existingTrainRaw) {
+        try {
+          const td = JSON.parse(existingTrainRaw);
+          const modelNames = Object.keys(td.results || {});
+          const startLike = {
+            task_type: td.task_type,
+            feature_columns: td.feature_columns,
+            excluded_id_columns: td.excluded_id_columns || [],
+            n_train: td.n_train,
+            n_test: td.n_test,
+            models: modelNames,
+          };
+          renderSkeleton(resultsHost, startLike);
+          modelNames.forEach(name => {
+            const r = td.results[name];
+            if (r && !r.error) {
+              setModelResult({ model: name, metrics: r, elapsed_s: '—' }, startLike);
+            } else if (r && r.error) {
+              setModelResult({ model: name, error: r.error, elapsed_s: '—' }, startLike);
+            }
+          });
+          if (td.ensemble_results && td.ensemble_results.length) {
+            renderEnsembles(resultsHost, td.ensemble_results, startLike);
+          }
+          if (td.saved_models && td.saved_models.length) {
+            renderSaved(resultsHost, td.saved_models);
+            renderNextBanner(resultsHost, td);
+          }
+        } catch (e) {}
+      }
+
       trainBtn.addEventListener('click', async () => {
         trainBtn.disabled = true;
         trainBtn.textContent = 'Training…';
@@ -556,6 +589,15 @@
         <span class="next-banner-arrow">&rarr;</span>`;
       bannerHost.appendChild(banner);
     }
+
+    // Data Collection resets all progress — confirm before navigating
+    document.querySelector('.main-nav a[href="/"]').addEventListener('click', function(e) {
+      e.preventDefault();
+      if (confirm('Going to Data Collection will clear all current progress (preparation, training, inference). Continue?')) {
+        sessionStorage.clear();
+        window.location.href = '/';
+      }
+    });
   </script>
 </body>
 </html>
