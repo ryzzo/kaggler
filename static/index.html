@@ -136,6 +136,43 @@
     <a href="/training">Data Training</a>
     <a href="/inference">Inference</a>
   </nav>
+  <div id="res-bar" style="
+    font-size:.72rem;font-weight:600;color:#64748b;
+    display:flex;align-items:center;flex-wrap:wrap;gap:14px;
+    padding:6px 0 0;margin-bottom:4px;
+  "></div>
+  <script>
+    (function(){
+      const bar = document.getElementById('res-bar');
+      function pill(label,pct,color){
+        return `<span style="display:inline-flex;align-items:center;gap:6px">
+          <span style="color:#94a3b8">${label}</span>
+          <span style="background:#1e2430;border-radius:999px;overflow:hidden;width:64px;height:7px;display:inline-block">
+            <span style="display:block;height:100%;width:${Math.min(pct,100)}%;background:${color};border-radius:999px;transition:width .4s"></span>
+          </span>
+          <span style="color:#cbd5e1">${pct}%</span>
+        </span>`;
+      }
+      async function refresh(){
+        try{
+          const d = await fetch('/resources').then(r=>r.json());
+          let html = '';
+          html += pill('CPU', d.cpu_pct, '#6366f1');
+          if(d.ram && d.ram.total_mb){
+            html += pill(`RAM ${d.ram.used_mb}/${d.ram.total_mb} MB`, d.ram.percent, '#0ea5e9');
+          }
+          if(d.gpu_available && d.gpu && d.gpu.util_pct != null){
+            html += pill(`GPU ${d.gpu.vram_used_mb}/${d.gpu.vram_total_mb} MB`, d.gpu.util_pct, '#10b981');
+          } else if(d.gpu_available){
+            html += `<span style="color:#475569">GPU: N/A</span>`;
+          }
+          bar.innerHTML = html;
+        }catch(e){ bar.innerHTML = ''; }
+      }
+      refresh();
+      setInterval(refresh, 5000);
+    })();
+  </script>
 
   <h1>File Processor</h1>
   <p class="subtitle">Drop files here or browse — CSV, images, and text supported.</p>
