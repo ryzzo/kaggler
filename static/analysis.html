@@ -415,6 +415,60 @@
         content.appendChild(list);
       }
 
+      // ── Missingness correlation ──
+      const mc = data.missingness_correlation || {};
+      const mcKeys = Object.keys(mc);
+      if (mcKeys.length > 0) {
+        content.appendChild(sectionTitle('Missingness correlation', 'sec-missingness'));
+
+        const intro = document.createElement('div');
+        intro.style.cssText = 'color:#64748b;font-size:.8rem;margin-bottom:16px';
+        intro.textContent = 'Pearson correlation between each column\'s missing-indicator (1=missing, 0=present) and other columns. High |r| suggests missingness is not random.';
+        content.appendChild(intro);
+
+        mcKeys.forEach(col => {
+          const info = mc[col];
+          const card = document.createElement('div');
+          card.style.cssText = 'background:#111827;border:1px solid #1e2030;border-radius:10px;padding:14px 16px;margin-bottom:12px';
+
+          // header row
+          const hdr = document.createElement('div');
+          hdr.style.cssText = 'display:flex;align-items:center;gap:10px;margin-bottom:10px';
+          hdr.innerHTML = `
+            <span style="font-weight:700;color:#e2e8f0;font-size:.85rem">${escHtml(col)}</span>
+            <span style="font-size:.72rem;background:#3b1f5e;color:#c4b5fd;padding:2px 8px;border-radius:999px">
+              ${info.missing_count.toLocaleString()} missing · ${info.missing_pct}%
+            </span>`;
+          card.appendChild(hdr);
+
+          if (!info.top_correlations.length) {
+            const none = document.createElement('div');
+            none.style.cssText = 'color:#475569;font-size:.78rem';
+            none.textContent = 'No correlations computable (no numeric or other missing columns).';
+            card.appendChild(none);
+          } else {
+            info.top_correlations.forEach(({ column, r }) => {
+              const absR = Math.abs(r);
+              const pct = (absR * 100).toFixed(1);
+              const color = r >= 0 ? '#6366f1' : '#f43f5e';
+              const strength = absR >= 0.7 ? 'strong' : absR >= 0.4 ? 'moderate' : 'weak';
+              const strengthColor = absR >= 0.7 ? '#fbbf24' : absR >= 0.4 ? '#94a3b8' : '#475569';
+              const row = document.createElement('div');
+              row.style.cssText = 'display:grid;grid-template-columns:160px 1fr 52px 54px;align-items:center;gap:8px;padding:3px 0';
+              row.innerHTML = `
+                <span style="font-size:.76rem;color:#cbd5e1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(column)}">${escHtml(column)}</span>
+                <div style="background:#1e2430;border-radius:999px;overflow:hidden;height:7px">
+                  <div style="height:100%;width:${pct}%;background:${color};border-radius:999px;transition:width .3s"></div>
+                </div>
+                <span style="font-size:.74rem;color:#cbd5e1;text-align:right">${r >= 0 ? '+' : ''}${r}</span>
+                <span style="font-size:.66rem;color:${strengthColor};text-align:right">${strength}</span>`;
+              card.appendChild(row);
+            });
+          }
+          content.appendChild(card);
+        });
+      }
+
       // ── Feature charts (single column) ──
       if (data.features.length > 0) {
         content.appendChild(sectionTitle('Features', 'sec-features'));

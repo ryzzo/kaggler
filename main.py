@@ -1,3 +1,4 @@
+import asyncio
 import io
 import csv
 import json
@@ -425,6 +426,46 @@ def analyze(req: AnalyzeRequest):
         for a in num_keys
     }
 
+    # ── Missingness correlation ──────────────────────────────────────────────
+    # For each column with ≥1 missing value build a binary missing-indicator vector,
+    # then correlate it with (a) every other column's indicator and (b) numeric values.
+    all_cols_ordered = [*req.features, req.label]
+    miss_indicators: dict[str, list[float]] = {
+        col: [1.0 if v.strip() == "" else 0.0 for v in raw[col]]
+        for col in all_cols_ordered
+        if _missing_count(raw[col]) > 0
+    }
+
+    missingness_correlation: dict[str, dict] = {}
+    if miss_indicators:
+        # correlate each missing indicator with all numeric columns + all other indicators
+        for miss_col, indicator in miss_indicators.items():
+            row_corr: dict[str, float | None] = {}
+            # vs numeric column values
+            for num_col, num_vals in numeric_cols.items():
+                if num_col == miss_col:
+                    continue
+                row_corr[num_col] = _correlation(indicator, num_vals)
+            # vs other missingness indicators
+            for other_col, other_ind in miss_indicators.items():
+                if other_col == miss_col:
+                    continue
+                key = f"{other_col} (missing)"
+                row_corr[key] = _correlation(indicator, other_ind)
+            # sort by absolute value descending, drop None
+            sorted_corr = sorted(
+                ((k, v) for k, v in row_corr.items() if v is not None),
+                key=lambda x: abs(x[1]),
+                reverse=True,
+            )
+            missingness_correlation[miss_col] = {
+                "missing_count": _missing_count(raw[miss_col]),
+                "missing_pct": round(_missing_count(raw[miss_col]) / len(rows) * 100, 2),
+                "top_correlations": [
+                    {"column": k, "r": round(v, 4)} for k, v in sorted_corr[:10]
+                ],
+            }
+
     return JSONResponse({
         "file_id": req.file_id,
         "row_count": len(rows),
@@ -432,6 +473,7 @@ def analyze(req: AnalyzeRequest):
         "label": label_info,
         "feature_analysis": feature_analysis,
         "correlation_matrix": {"columns": num_keys, "values": corr_matrix},
+        "missingness_correlation": missingness_correlation,
     })
 
 
@@ -538,7 +580,7 @@ def _sse(event: str, data: Any) -> str:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
 
-def _train_generator(req: TrainRequest):
+async def _train_generator(req: TrainRequest):
     path = PREPARED_DIR / f"{req.prepared_file_id}.csv"
     if not path.exists():
         yield _sse("error", {"detail": "Prepared file not found", "status": 404})
@@ -615,7 +657,8 @@ def _train_generator(req: TrainRequest):
         yield _sse("training", {"model": name, "index": idx, "total": total})
         t0 = time.perf_counter()
         try:
-            model.fit(X_train, y_train)
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, model.fit, X_train, y_train)
             preds = np.asarray(model.predict(X_test)).ravel()
             elapsed = round(time.perf_counter() - t0, 2)
             test_preds[name] = preds
@@ -704,15 +747,37 @@ def _train_generator(req: TrainRequest):
     })
 
 
-@app.post("/train")
-def train(req: TrainRequest):
+_job_store: dict[str, TrainRequest] = {}
+
+
+@app.post("/train/init")
+async def train_init(req: TrainRequest):
+    """Validate and store training params; return a job_id for the SSE stream."""
+    path = PREPARED_DIR / f"{req.prepared_file_id}.csv"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Prepared file not found")
+    if req.label not in req.columns:
+        raise HTTPException(status_code=400, detail="Label is not in columns")
+    if req.label_kind not in ("numeric", "categorical"):
+        raise HTTPException(status_code=400, detail="label_kind must be 'numeric' or 'categorical'")
+    job_id = str(uuid.uuid4())
+    _job_store[job_id] = req
+    return JSONResponse({"job_id": job_id})
+
+
+@app.get("/train/stream/{job_id}")
+async def train_stream(job_id: str):
+    """SSE endpoint consumed by EventSource — streams model results as they complete."""
+    req = _job_store.pop(job_id, None)
+    if req is None:
+        async def _not_found():
+            yield _sse("error", {"detail": "Job not found or already consumed", "status": 404})
+        return StreamingResponse(_not_found(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
     return StreamingResponse(
         _train_generator(req),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
