@@ -170,6 +170,10 @@
       const labelKind = isCategorical ? 'categorical' : 'numeric';
       const taskType = isCategorical ? 'classification' : 'regression';
 
+      // Which file to train on — user can switch if clean data is available
+      let trainFileId = data.prepared_file_id;
+      let trainFileLabel = 'Encoded + scaled (prepared)';
+
       const card = document.createElement('div');
       card.className = 'summary-card';
       card.innerHTML = `
@@ -177,8 +181,57 @@
         <div class="summary-row"><span>Rows</span><span>${data.row_count}</span></div>
         <div class="summary-row"><span>Columns</span><span>${data.columns.length}</span></div>
         <div class="summary-row"><span>Download</span><span><a class="download-link" href="${data.download_url}" download>prepared_data.csv</a></span></div>
+        ${data.clean_download_url ? `<div class="summary-row"><span>Clean data</span><span><a class="download-link" style="color:#6ee7b7" href="${data.clean_download_url}" download>clean_data.csv</a></span></div>` : ''}
         <div class="col-chip-row">${data.columns.map(c => `<span class="col-chip">${escHtml(c)}</span>`).join('')}</div>`;
       content.appendChild(card);
+
+      // Dataset selector — shown only when clean (imputed, original-scale) data exists
+      if (data.clean_file_id) {
+        const dsTitle = document.createElement('div');
+        dsTitle.className = 'section-title';
+        dsTitle.textContent = 'Training dataset';
+        content.appendChild(dsTitle);
+
+        const dsCard = document.createElement('div');
+        dsCard.className = 'summary-card';
+        dsCard.style.padding = '12px 16px';
+
+        function makeOption(fileId, labelText, desc, isClean) {
+          const opt = document.createElement('label');
+          opt.style.cssText = 'display:flex;align-items:flex-start;gap:12px;cursor:pointer;padding:8px 0;border-bottom:1px solid #1e2430';
+          const radio = document.createElement('input');
+          radio.type = 'radio';
+          radio.name = 'train-dataset';
+          radio.value = fileId;
+          radio.style.cssText = 'margin-top:3px;accent-color:#6366f1;flex-shrink:0';
+          if (fileId === trainFileId) radio.checked = true;
+          const txt = document.createElement('div');
+          txt.innerHTML = `<div style="font-size:.83rem;font-weight:600;color:${isClean ? '#6ee7b7' : '#a5b4fc'}">${labelText}</div>
+            <div style="font-size:.75rem;color:#64748b;margin-top:2px">${desc}</div>`;
+          opt.appendChild(radio);
+          opt.appendChild(txt);
+          radio.addEventListener('change', () => {
+            trainFileId = fileId;
+            trainFileLabel = labelText;
+          });
+          return opt;
+        }
+
+        dsCard.appendChild(makeOption(
+          data.prepared_file_id,
+          'Encoded + scaled (prepared)',
+          'Label-encoded categoricals, z-score scaled numerics. Standard input for tree-based models.',
+          false,
+        ));
+        dsCard.appendChild(makeOption(
+          data.clean_file_id,
+          'Clean data (imputed, original scale)',
+          'Missing values filled via median / mode / KNN — original values kept. Useful if you want the model to learn from unscaled features.',
+          true,
+        ));
+        dsCard.lastChild.style.borderBottom = 'none';
+        content.appendChild(dsCard);
+      }
 
       const labelTitle = document.createElement('div');
       labelTitle.className = 'section-title';
@@ -233,94 +286,98 @@
         trainBtn.disabled = true;
         trainBtn.textContent = 'Training…';
         resultsHost.innerHTML = '';
+        let es = null;
+        let startData = null;
 
-        // state accumulated across SSE events
-        let startData = null, finalResult = null;
-        const modelResults = {};
+        function done() {
+          if (es) { es.close(); es = null; }
+          trainBtn.disabled = false;
+          trainBtn.textContent = `Train GradientBoosting, LightGBM & CatBoost (${taskType})`;
+        }
 
-        try {
-          const resp = await fetch('/train', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              prepared_file_id: data.prepared_file_id,
-              columns: data.columns,
-              label,
-              label_kind: labelKind,
-            }),
-          });
-          if (!resp.ok) {
-            const err = await resp.json().catch(() => ({}));
-            throw new Error(resp.status === 404 ? 'STALE_FILE' : (err.detail || `Request failed (${resp.status})`));
-          }
-
-          const reader = resp.body.getReader();
-          const decoder = new TextDecoder();
-          let buf = '';
-
-          function parseSSE(chunk) {
-            buf += chunk;
-            const events = [];
-            let boundary;
-            while ((boundary = buf.indexOf('\n\n')) !== -1) {
-              const block = buf.slice(0, boundary);
-              buf = buf.slice(boundary + 2);
-              let eventType = 'message', dataLine = '';
-              for (const line of block.split('\n')) {
-                if (line.startsWith('event: ')) eventType = line.slice(7).trim();
-                else if (line.startsWith('data: ')) dataLine = line.slice(6).trim();
-              }
-              if (dataLine) events.push({ type: eventType, data: JSON.parse(dataLine) });
-            }
-            return events;
-          }
-
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            const events = parseSSE(decoder.decode(value, { stream: true }));
-            for (const { type, data: d } of events) {
-              if (type === 'error') {
-                throw new Error(d.status === 404 ? 'STALE_FILE' : (d.detail || 'Server error'));
-              }
-              if (type === 'start') {
-                startData = d;
-                renderSkeleton(resultsHost, d);
-              }
-              if (type === 'training') {
-                setModelStatus(d.model, 'training');
-              }
-              if (type === 'result') {
-                modelResults[d.model] = d;
-                setModelResult(d, startData);
-              }
-              if (type === 'ensembles') {
-                renderEnsembles(resultsHost, d.ensemble_results, startData);
-              }
-              if (type === 'saved') {
-                renderSaved(resultsHost, d.saved_models);
-              }
-              if (type === 'done') {
-                finalResult = { ...d, label_kind: labelKind };
-                sessionStorage.setItem('trainingData', JSON.stringify(finalResult));
-                renderNextBanner(resultsHost, d);
-              }
-            }
-          }
-        } catch (e) {
-          if (e.message === 'STALE_FILE') {
+        function showError(msg) {
+          done();
+          if (msg === 'STALE_FILE') {
             resultsHost.innerHTML = `<div id="error-msg" style="padding:20px 0">
               The prepared file is no longer on the server (only the most recent upload is kept).
               <br><a class="download-link" href="/preparation">&larr; Go re-run Data Preparation</a>
             </div>`;
           } else {
-            resultsHost.innerHTML += `<div id="error-msg" style="padding:20px 0">${escHtml(e.message)}</div>`;
+            resultsHost.innerHTML += `<div id="error-msg" style="padding:20px 0">${escHtml(msg)}</div>`;
           }
-        } finally {
-          trainBtn.disabled = false;
-          trainBtn.textContent = `Train GradientBoosting, LightGBM & CatBoost (${taskType})`;
         }
+
+        // Step 1: POST params → get a job_id
+        let jobId;
+        try {
+          const init = await fetch('/train/init', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              prepared_file_id: trainFileId,
+              columns: data.columns,
+              label,
+              label_kind: labelKind,
+            }),
+          });
+          if (!init.ok) {
+            const err = await init.json().catch(() => ({}));
+            showError(init.status === 404 ? 'STALE_FILE' : (err.detail || `Request failed (${init.status})`));
+            return;
+          }
+          ({ job_id: jobId } = await init.json());
+        } catch (e) {
+          showError(e.message);
+          return;
+        }
+
+        // Step 2: open EventSource — browser handles SSE parsing natively
+        es = new EventSource(`/train/stream/${jobId}`);
+
+        es.addEventListener('error', (e) => {
+          const d = safeJSON(e.data);
+          showError(d ? (d.status === 404 ? 'STALE_FILE' : d.detail) : 'Stream error');
+        });
+        es.addEventListener('start', (e) => {
+          startData = safeJSON(e.data);
+          if (startData) renderSkeleton(resultsHost, startData);
+        });
+        es.addEventListener('training', (e) => {
+          const d = safeJSON(e.data);
+          if (d) setModelStatus(d.model, 'training');
+        });
+        es.addEventListener('result', (e) => {
+          const d = safeJSON(e.data);
+          if (d) setModelResult(d, startData);
+        });
+        es.addEventListener('ensembles', (e) => {
+          const d = safeJSON(e.data);
+          if (d) renderEnsembles(resultsHost, d.ensemble_results, startData);
+        });
+        es.addEventListener('saved', (e) => {
+          const d = safeJSON(e.data);
+          if (d) renderSaved(resultsHost, d.saved_models);
+        });
+        es.addEventListener('done', (e) => {
+          const d = safeJSON(e.data);
+          if (d) {
+            sessionStorage.setItem('trainingData', JSON.stringify({ ...d, label_kind: labelKind }));
+            renderNextBanner(resultsHost, d);
+          }
+          done();
+        });
+
+        // generic EventSource error (network drop etc.)
+        es.onerror = () => {
+          if (es && es.readyState === EventSource.CLOSED) {
+            showError('Connection lost during training.');
+          }
+        };
       });
+
+      function safeJSON(str) {
+        try { return JSON.parse(str); } catch { return null; }
+      }
     }
 
     const MODEL_LABELS = { gradient_boosting: 'GradientBoosting', lightgbm: 'LightGBM', catboost: 'CatBoost' };

@@ -709,6 +709,18 @@ def prepare(req: PrepareRequest):
     # Impute missing values in-place before encoding/scaling
     imputation_info = _impute_missing(rows, cols, column_kinds, req.file_id)
 
+    # Save the clean (imputed, untransformed) CSV for inspection and training reuse
+    clean_id = str(uuid.uuid4())
+    clean_path = PREPARED_DIR / f"{clean_id}__clean.csv"
+    with clean_path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(cols)
+        for r in rows:
+            writer.writerow([r[col] for col in cols])
+    # Cache the clean file path so training can reference it
+    if req.file_id in _analysis_cache:
+        _analysis_cache[req.file_id]["clean_file_id"] = clean_id
+
     prepared: dict[str, list[float]] = {}
     encoding_info: dict[str, dict[str, int]] = {}
     scaling_info: dict[str, dict[str, float]] = {}
@@ -744,6 +756,7 @@ def prepare(req: PrepareRequest):
     return JSONResponse({
         "file_id": req.file_id,
         "prepared_file_id": file_id,
+        "clean_file_id": clean_id,
         "row_count": len(rows),
         "columns": cols,
         "encoding_info": encoding_info,
@@ -751,6 +764,7 @@ def prepare(req: PrepareRequest):
         "imputation_info": imputation_info,
         "preview": preview,
         "download_url": f"/download/prepared/{file_id}",
+        "clean_download_url": f"/download/clean/{clean_id}",
     })
 
 
@@ -760,6 +774,14 @@ def download_prepared(file_id: str):
     if not path.exists():
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(path, media_type="text/csv", filename="prepared_data.csv")
+
+
+@app.get("/download/clean/{file_id}")
+def download_clean(file_id: str):
+    path = PREPARED_DIR / f"{file_id}__clean.csv"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(path, media_type="text/csv", filename="clean_data.csv")
 
 
 class TrainRequest(BaseModel):

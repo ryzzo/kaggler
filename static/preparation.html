@@ -279,7 +279,13 @@
 
       const dlRow = document.createElement('div');
       dlRow.className = 'action-row';
-      dlRow.innerHTML = `<a class="download-link" href="${result.download_url}" download>&darr; Download prepared CSV (${result.row_count} rows)</a>`;
+      dlRow.style.gap = '20px';
+      dlRow.innerHTML = `
+        <a class="download-link" href="${result.download_url}" download>&darr; Download prepared CSV (encoded + scaled)</a>
+        ${result.clean_download_url
+          ? `<a class="download-link" href="${result.clean_download_url}" download
+               style="color:#6ee7b7">&darr; Download clean CSV (imputed, original scale)</a>`
+          : ''}`;
       host.appendChild(dlRow);
 
       // Preview table
