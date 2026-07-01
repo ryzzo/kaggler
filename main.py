@@ -15,7 +15,7 @@ import uvicorn
 import numpy as np
 import joblib
 from fastapi import FastAPI, File, Form, UploadFile, HTTPException
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from PIL import Image
@@ -534,25 +534,33 @@ class TrainRequest(BaseModel):
 _ID_COL_RE = re.compile(r"^id$|^id[_-]|[_-]id$", re.IGNORECASE)
 
 
-@app.post("/train")
-def train(req: TrainRequest):
+def _sse(event: str, data: Any) -> str:
+    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+
+def _train_generator(req: TrainRequest):
     path = PREPARED_DIR / f"{req.prepared_file_id}.csv"
     if not path.exists():
-        raise HTTPException(status_code=404, detail="Prepared file not found")
+        yield _sse("error", {"detail": "Prepared file not found", "status": 404})
+        return
     if req.label not in req.columns:
-        raise HTTPException(status_code=400, detail="Label is not in columns")
+        yield _sse("error", {"detail": "Label is not in columns", "status": 400})
+        return
+
     excluded_id_cols = [c for c in req.columns if c != req.label and _ID_COL_RE.search(c.strip())]
     feature_cols = [c for c in req.columns if c != req.label and c not in excluded_id_cols]
     if not feature_cols:
-        raise HTTPException(status_code=400, detail="No feature columns to train on")
+        yield _sse("error", {"detail": "No feature columns to train on", "status": 400})
+        return
     if req.label_kind not in ("numeric", "categorical"):
-        raise HTTPException(status_code=400, detail="label_kind must be 'numeric' or 'categorical'")
+        yield _sse("error", {"detail": "label_kind must be 'numeric' or 'categorical'", "status": 400})
+        return
 
     text = path.read_text(encoding="utf-8")
-    reader = csv.DictReader(io.StringIO(text))
-    rows = list(reader)
+    rows = list(csv.DictReader(io.StringIO(text)))
     if len(rows) < 5:
-        raise HTTPException(status_code=400, detail="Not enough rows to train/test split")
+        yield _sse("error", {"detail": "Not enough rows to train/test split", "status": 400})
+        return
 
     X = np.array([[float(r[c]) for c in feature_cols] for r in rows])
     is_classification = req.label_kind == "categorical"
@@ -572,31 +580,49 @@ def train(req: TrainRequest):
     lgbm_extra = {"device": "gpu"} if GPU_AVAILABLE else {}
     catboost_extra = {"task_type": "GPU"} if GPU_AVAILABLE else {}
 
-    if is_classification:
-        models = {
-            "gradient_boosting": GradientBoostingClassifier(random_state=42),
-            "lightgbm": LGBMClassifier(random_state=42, verbose=-1, **lgbm_extra),
-            "catboost": CatBoostClassifier(random_state=42, verbose=False, **catboost_extra),
-        }
-    else:
-        models = {
-            "gradient_boosting": GradientBoostingRegressor(random_state=42),
-            "lightgbm": LGBMRegressor(random_state=42, verbose=-1, **lgbm_extra),
-            "catboost": CatBoostRegressor(random_state=42, verbose=False, **catboost_extra),
-        }
+    model_defs = (
+        [
+            ("gradient_boosting", GradientBoostingClassifier(random_state=42)),
+            ("lightgbm",          LGBMClassifier(random_state=42, verbose=-1, **lgbm_extra)),
+            ("catboost",          CatBoostClassifier(random_state=42, verbose=False, **catboost_extra)),
+        ] if is_classification else [
+            ("gradient_boosting", GradientBoostingRegressor(random_state=42)),
+            ("lightgbm",          LGBMRegressor(random_state=42, verbose=-1, **lgbm_extra)),
+            ("catboost",          CatBoostRegressor(random_state=42, verbose=False, **catboost_extra)),
+        ]
+    )
+    total = len(model_defs)
 
-    results = {}
+    # emit setup info so the frontend can build the table skeleton
+    yield _sse("start", {
+        "task_type": "classification" if is_classification else "regression",
+        "label": req.label,
+        "feature_columns": feature_cols,
+        "excluded_id_columns": excluded_id_cols,
+        "n_train": int(len(X_train)),
+        "n_test": int(len(X_test)),
+        "models": [n for n, _ in model_defs],
+        "total": total,
+    })
+
+    results: dict[str, Any] = {}
+    models: dict[str, Any] = {}
     test_preds: dict[str, np.ndarray] = {}
     test_probas: dict[str, np.ndarray] = {}
     classes_: np.ndarray | None = None
-    for name, model in models.items():
+
+    for idx, (name, model) in enumerate(model_defs):
+        yield _sse("training", {"model": name, "index": idx, "total": total})
+        t0 = time.perf_counter()
         try:
             model.fit(X_train, y_train)
             preds = np.asarray(model.predict(X_test)).ravel()
+            elapsed = round(time.perf_counter() - t0, 2)
             test_preds[name] = preds
+            models[name] = model
             if is_classification:
-                results[name] = {
-                    "accuracy": round(float(accuracy_score(y_test, preds)), 4),
+                metrics = {
+                    "accuracy":    round(float(accuracy_score(y_test, preds)), 4),
                     "f1_weighted": round(float(f1_score(y_test, preds, average="weighted")), 4),
                 }
                 proba = model.predict_proba(X_test)
@@ -605,48 +631,48 @@ def train(req: TrainRequest):
                 if np.array_equal(np.asarray(model.classes_), classes_):
                     test_probas[name] = np.asarray(proba)
             else:
-                results[name] = {
+                metrics = {
                     "rmse": round(float(math.sqrt(mean_squared_error(y_test, preds))), 4),
-                    "mae": round(float(mean_absolute_error(y_test, preds)), 4),
-                    "r2": round(float(r2_score(y_test, preds)), 4),
+                    "mae":  round(float(mean_absolute_error(y_test, preds)), 4),
+                    "r2":   round(float(r2_score(y_test, preds)), 4),
                 }
+            results[name] = metrics
+            yield _sse("result", {"model": name, "index": idx, "metrics": metrics, "elapsed_s": elapsed})
         except Exception as exc:
+            elapsed = round(time.perf_counter() - t0, 2)
             results[name] = {"error": str(exc)}
+            yield _sse("result", {"model": name, "index": idx, "error": str(exc), "elapsed_s": elapsed})
 
-    # ── Voting ensembles over every combination of 2+ successfully trained models ──
-    ok_names = [n for n in models if n in test_preds]
+    # ── Voting ensembles ──
+    ok_names = [n for n, _ in model_defs if n in test_preds]
     ensemble_results = []
     for r in (2, 3):
         for combo in combinations(ok_names, r):
-            if r > len(ok_names):
-                continue
             if is_classification:
-                # soft voting: average predicted class probabilities across member models
                 if all(n in test_probas for n in combo):
                     avg_proba = np.mean([test_probas[n] for n in combo], axis=0)
                     soft_pred = classes_[np.argmax(avg_proba, axis=1)]
                     ensemble_results.append({
-                        "models": list(combo),
-                        "voting": "soft",
-                        "accuracy": round(float(accuracy_score(y_test, soft_pred)), 4),
+                        "models": list(combo), "voting": "soft",
+                        "accuracy":    round(float(accuracy_score(y_test, soft_pred)), 4),
                         "f1_weighted": round(float(f1_score(y_test, soft_pred, average="weighted")), 4),
                     })
             else:
                 avg_pred = np.mean([test_preds[n] for n in combo], axis=0)
                 ensemble_results.append({
-                    "models": list(combo),
-                    "voting": "average",
+                    "models": list(combo), "voting": "average",
                     "rmse": round(float(math.sqrt(mean_squared_error(y_test, avg_pred))), 4),
-                    "mae": round(float(mean_absolute_error(y_test, avg_pred)), 4),
-                    "r2": round(float(r2_score(y_test, avg_pred)), 4),
+                    "mae":  round(float(mean_absolute_error(y_test, avg_pred)), 4),
+                    "r2":   round(float(r2_score(y_test, avg_pred)), 4),
                 })
 
-    # ── Persist the two best-performing base models ──
+    yield _sse("ensembles", {"ensemble_results": ensemble_results})
+
+    # ── Save top-2 models ──
     rank_metric = "accuracy" if is_classification else "r2"
     ranked = sorted(
-        ((name, results[name][rank_metric]) for name in results if "error" not in results[name]),
-        key=lambda item: item[1],
-        reverse=True,
+        ((name, results[name][rank_metric]) for name in results if "error" not in results[name] and rank_metric in results[name]),
+        key=lambda item: item[1], reverse=True,
     )
     saved_models = []
     for name, score in ranked[:2]:
@@ -664,17 +690,30 @@ def train(req: TrainRequest):
         joblib.dump(bundle, MODELS_DIR / filename)
         saved_models.append({"model": name, "metric": rank_metric, "score": score, "filename": filename})
 
-    return JSONResponse({
+    yield _sse("saved", {"saved_models": saved_models})
+    yield _sse("done", {
         "task_type": "classification" if is_classification else "regression",
         "label": req.label,
         "feature_columns": feature_cols,
         "excluded_id_columns": excluded_id_cols,
-        "n_train": len(X_train),
-        "n_test": len(X_test),
+        "n_train": int(len(X_train)),
+        "n_test": int(len(X_test)),
         "results": results,
         "ensemble_results": ensemble_results,
         "saved_models": saved_models,
     })
+
+
+@app.post("/train")
+def train(req: TrainRequest):
+    return StreamingResponse(
+        _train_generator(req),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.post("/infer")
