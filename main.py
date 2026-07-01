@@ -680,12 +680,24 @@ async def infer(
     pred_col = f"{label}_prediction"
     out_cols = fieldnames + [pred_col]
     pred_id = str(uuid.uuid4())
+
+    # Full predictions file (all input columns + prediction)
     save_path = PREDICTIONS_DIR / f"{pred_id}.csv"
     with save_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(out_cols)
         for r, p in zip(rows, predictions):
             writer.writerow([r.get(c, "") for c in fieldnames] + [p])
+
+    # Kaggle submission file: id column (or row index) + label column
+    id_col = next((c for c in fieldnames if _ID_COL_RE.match(c)), None)
+    sub_path = PREDICTIONS_DIR / f"{pred_id}_submission.csv"
+    with sub_path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["id" if id_col is None else id_col, label])
+        for i, (r, p) in enumerate(zip(rows, predictions)):
+            id_val = str(i) if id_col is None else r.get(id_col, str(i))
+            writer.writerow([id_val, p])
 
     preview = [
         {**{c: r.get(c, "") for c in fieldnames}, pred_col: p}
@@ -700,6 +712,8 @@ async def infer(
         "columns": out_cols,
         "preview": preview,
         "download_url": f"/download/predictions/{pred_id}",
+        "submission_url": f"/download/submission/{pred_id}",
+        "submission_id_col": id_col or "id (row index)",
     })
 
 
@@ -709,6 +723,14 @@ def download_predictions(pred_id: str):
     if not path.exists():
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(path, media_type="text/csv", filename="predictions.csv")
+
+
+@app.get("/download/submission/{pred_id}")
+def download_submission(pred_id: str):
+    path = PREDICTIONS_DIR / f"{pred_id}_submission.csv"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(path, media_type="text/csv", filename="submission.csv")
 
 
 @app.get("/health")

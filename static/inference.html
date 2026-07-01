@@ -256,9 +256,19 @@
       }
 
       const dlRow = document.createElement('div');
-      dlRow.style.cssText = 'margin:10px 0 18px';
-      dlRow.innerHTML = `<a class="download-link" href="${result.download_url}" download>&darr; Download predictions.csv (${result.row_count} rows)</a>`;
+      dlRow.style.cssText = 'margin:10px 0 4px;display:flex;flex-wrap:wrap;gap:16px;align-items:center';
+      dlRow.innerHTML = `
+        <a class="download-link" href="${result.download_url}" download>&darr; Download predictions.csv (${result.row_count} rows)</a>
+        <a class="download-link" href="${result.submission_url}" download
+           style="background:#064e3b;color:#6ee7b7;padding:6px 14px;border-radius:7px;font-size:.82rem">
+          &darr; Download submission.csv (Kaggle)
+        </a>`;
       host.appendChild(dlRow);
+
+      const subNote = document.createElement('div');
+      subNote.style.cssText = 'color:#475569;font-size:.75rem;margin-bottom:14px';
+      subNote.textContent = `Kaggle submission contains: ${escHtml(result.submission_id_col || 'id')} + ${escHtml(result.prediction_column.replace('_prediction',''))} columns only.`;
+      host.appendChild(subNote);
 
       const t1 = document.createElement('div');
       t1.className = 'section-title';
