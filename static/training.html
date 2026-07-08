@@ -34,11 +34,7 @@
     h1 { font-size: 1.5rem; font-weight: 700; }
     .subtitle { color: #64748b; font-size: .85rem; margin-top: 2px; }
 
-    .placeholder {
-      text-align: center; padding: 80px 20px;
-      color: #475569; font-size: .95rem;
-    }
-    .placeholder svg { width: 48px; height: 48px; color: #334155; margin-bottom: 16px; }
+    #error-msg { color: #fca5a5; font-size: .95rem; padding: 40px 0; text-align: center; }
 
     .summary-card {
       background: #111827; border: 1px solid #1e2030; border-radius: 12px;
@@ -47,25 +43,12 @@
     .summary-card h3 { font-size: .82rem; color: #cbd5e1; margin-bottom: 10px; }
     .summary-row { display: flex; justify-content: space-between; font-size: .8rem; color: #94a3b8; padding: 4px 0; }
     .summary-row span:last-child { color: #e2e8f0; font-weight: 600; }
-    .col-chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-    .col-chip { font-size: .72rem; background: #1e1b4b; color: #a5b4fc; padding: 3px 9px; border-radius: 999px; }
-    .download-link { color: #a5b4fc; text-decoration: none; font-size: .8rem; font-weight: 600; }
-    .download-link:hover { text-decoration: underline; }
-
-    #error-msg { color: #fca5a5; font-size: .95rem; padding: 40px 0; text-align: center; }
 
     .section-title {
       font-size: .72rem; font-weight: 700; text-transform: uppercase;
       letter-spacing: .07em; color: #475569; margin: 36px 0 14px;
       padding-bottom: 8px; border-bottom: 1px solid #1e2430;
     }
-
-    .task-badge {
-      display: inline-flex; align-items: center; gap: 6px;
-      font-size: .75rem; font-weight: 700; padding: 3px 10px; border-radius: 999px;
-    }
-    .task-badge.classification { background: #3b1f5e; color: #c4b5fd; }
-    .task-badge.regression     { background: #1e3a5f; color: #93c5fd; }
 
     .btn {
       background: #4f46e5; color: #fff; border: none; border-radius: 8px;
@@ -75,25 +58,19 @@
     .btn:hover { background: #4338ca; }
     .btn:disabled { background: #2d3748; cursor: not-allowed; }
 
-    .model-table { width: 100%; border-collapse: collapse; background: #111827; border-radius: 10px; overflow: hidden; border: 1px solid #1e2030; }
-    .model-table th, .model-table td { padding: 10px 14px; text-align: left; font-size: .82rem; border-bottom: 1px solid #1e2430; }
-    .model-table th { color: #64748b; font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; font-weight: 700; }
+    .model-table { width: 100%; border-collapse: collapse; background: #111827; border-radius: 10px; overflow: hidden; border: 1px solid #1e2030; font-size: .78rem; }
+    .model-table th, .model-table td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #1e2430; white-space: nowrap; }
+    .model-table th { color: #64748b; font-size: .68rem; text-transform: uppercase; letter-spacing: .04em; font-weight: 700; }
     .model-table tr:last-child td { border-bottom: none; }
     .model-name { font-weight: 600; color: #e2e8f0; }
-    .metric-error { color: #fca5a5; font-size: .78rem; }
+    .metric-error { color: #fca5a5; font-size: .74rem; white-space: normal; }
     .best-row { background: #0d1f17; }
-    .best-badge { font-size: .65rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; padding: 2px 7px; border-radius: 999px; background: #064e3b; color: #6ee7b7; margin-left: 8px; }
+    .top3-row { background: #1e1b4b33; }
+    .best-badge { font-size: .62rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; padding: 2px 6px; border-radius: 999px; background: #064e3b; color: #6ee7b7; margin-left: 6px; }
+    .top3-badge { font-size: .62rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; padding: 2px 6px; border-radius: 999px; background: #312e81; color: #c7d2fe; margin-left: 6px; }
 
-    .next-banner {
-      display: flex; align-items: center; justify-content: space-between;
-      background: #1e1b4b; border: 1px solid #312e81; border-radius: 10px;
-      padding: 12px 18px; margin-top: 28px; gap: 12px;
-      text-decoration: none; transition: background .15s, border-color .15s;
-    }
-    .next-banner:hover { background: #252159; border-color: #4338ca; }
-    .next-banner-text { font-size: .88rem; color: #c7d2fe; }
-    .next-banner-text strong { color: #e0e7ff; }
-    .next-banner-arrow { color: #6366f1; font-size: 1.1rem; flex-shrink: 0; }
+    .note { color: #64748b; font-size: .8rem; margin-bottom: 10px; }
+    .table-wrap { overflow-x: auto; }
 
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
   </style>
@@ -131,11 +108,6 @@
           if(d.ram && d.ram.total_mb){
             html += pill(`RAM ${d.ram.used_mb}/${d.ram.total_mb} MB`, d.ram.percent, '#0ea5e9');
           }
-          if(d.gpu_available && d.gpu && d.gpu.util_pct != null){
-            html += pill(`GPU ${d.gpu.vram_used_mb}/${d.gpu.vram_total_mb} MB`, d.gpu.util_pct, '#10b981');
-          } else if(d.gpu_available){
-            html += `<span style="color:#475569">GPU: N/A</span>`;
-          }
           bar.innerHTML = html;
         }catch(e){ bar.innerHTML = ''; }
       }
@@ -147,7 +119,7 @@
   <div class="top-bar">
     <div>
       <h1>Data Training</h1>
-      <div class="subtitle">Train and evaluate a model on your prepared data.</div>
+      <div class="subtitle">AutoML (PyCaret): compare models on a 10% sample, then retrain the top 3 on the full dataset.</div>
     </div>
   </div>
 
@@ -155,174 +127,102 @@
 
   <script>
     function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+    function safeJSON(str) { try { return JSON.parse(str); } catch { return null; } }
+
+    const MODEL_LABELS = {
+      lr: 'Logistic Regression', knn: 'KNN', nb: 'Naive Bayes', dt: 'Decision Tree',
+      svm: 'SVM (Linear)', ridge: 'Ridge Classifier', rf: 'Random Forest', qda: 'QDA',
+      ada: 'AdaBoost', gbc: 'Gradient Boosting', lda: 'LDA', et: 'Extra Trees',
+      lightgbm: 'LightGBM', catboost: 'CatBoost', dummy: 'Dummy (baseline)',
+    };
+    const METRIC_KEYS = [['Accuracy','Accuracy'],['AUC','AUC'],['Recall','Recall'],['Prec.','Prec.'],['F1','F1'],['Kappa','Kappa'],['MCC','MCC']];
 
     const content = document.getElementById('content');
     const raw = sessionStorage.getItem('preparedData');
 
     if (!raw) {
       content.innerHTML = `<div id="error-msg">
-        No prepared dataset found. <a class="download-link" href="/preparation">Go run Data Preparation first</a>.
+        No prepared dataset found. <a class="download-link" href="/preparation" style="color:#a5b4fc">Go run Data Preparation first</a>.
       </div>`;
     } else {
       const data = JSON.parse(raw);
       const label = data.columns[data.columns.length - 1];
       const isCategorical = Object.prototype.hasOwnProperty.call(data.encoding_info || {}, label);
-      const labelKind = isCategorical ? 'categorical' : 'numeric';
-      const taskType = isCategorical ? 'classification' : 'regression';
 
-      // Which file to train on — user can switch if clean data is available
-      let trainFileId = data.prepared_file_id;
-      let trainFileLabel = 'Encoded + scaled (prepared)';
+      if (!data.clean_file_id) {
+        content.innerHTML = `<div id="error-msg">
+          No clean (imputed) dataset available from Data Preparation. Training needs unencoded features.
+          <br><a href="/preparation" style="color:#a5b4fc">&larr; Go re-run Data Preparation</a>
+        </div>`;
+      } else if (!isCategorical) {
+        content.innerHTML = `<div id="error-msg">
+          Label "${escHtml(label)}" is numeric. Training currently supports classification labels only.
+        </div>`;
+      } else {
+        renderApp(data, label);
+      }
+    }
 
+    function renderApp(data, label) {
       const card = document.createElement('div');
       card.className = 'summary-card';
       card.innerHTML = `
-        <h3>Prepared dataset ready</h3>
+        <h3>Dataset</h3>
         <div class="summary-row"><span>Rows</span><span>${data.row_count}</span></div>
-        <div class="summary-row"><span>Columns</span><span>${data.columns.length}</span></div>
-        <div class="summary-row"><span>Download</span><span><a class="download-link" href="${data.download_url}" download>prepared_data.csv</a></span></div>
-        ${data.clean_download_url ? `<div class="summary-row"><span>Clean data</span><span><a class="download-link" style="color:#6ee7b7" href="${data.clean_download_url}" download>clean_data.csv</a></span></div>` : ''}
-        <div class="col-chip-row">${data.columns.map(c => `<span class="col-chip">${escHtml(c)}</span>`).join('')}</div>`;
+        <div class="summary-row"><span>Label</span><span>${escHtml(label)} (classification)</span></div>
+        <div class="summary-row"><span>Sample for comparison</span><span>10% (stratified)</span></div>
+        <div class="summary-row"><span>Final training</span><span>100% of dataset</span></div>`;
       content.appendChild(card);
 
-      // Dataset selector — shown only when clean (imputed, original-scale) data exists
-      if (data.clean_file_id) {
-        const dsTitle = document.createElement('div');
-        dsTitle.className = 'section-title';
-        dsTitle.textContent = 'Training dataset';
-        content.appendChild(dsTitle);
+      const title = document.createElement('div');
+      title.className = 'section-title';
+      title.textContent = 'Train models';
+      content.appendChild(title);
 
-        const dsCard = document.createElement('div');
-        dsCard.className = 'summary-card';
-        dsCard.style.padding = '12px 16px';
-
-        function makeOption(fileId, labelText, desc, isClean) {
-          const opt = document.createElement('label');
-          opt.style.cssText = 'display:flex;align-items:flex-start;gap:12px;cursor:pointer;padding:8px 0;border-bottom:1px solid #1e2430';
-          const radio = document.createElement('input');
-          radio.type = 'radio';
-          radio.name = 'train-dataset';
-          radio.value = fileId;
-          radio.style.cssText = 'margin-top:3px;accent-color:#6366f1;flex-shrink:0';
-          if (fileId === trainFileId) radio.checked = true;
-          const txt = document.createElement('div');
-          txt.innerHTML = `<div style="font-size:.83rem;font-weight:600;color:${isClean ? '#6ee7b7' : '#a5b4fc'}">${labelText}</div>
-            <div style="font-size:.75rem;color:#64748b;margin-top:2px">${desc}</div>`;
-          opt.appendChild(radio);
-          opt.appendChild(txt);
-          radio.addEventListener('change', () => {
-            trainFileId = fileId;
-            trainFileLabel = labelText;
-          });
-          return opt;
-        }
-
-        dsCard.appendChild(makeOption(
-          data.prepared_file_id,
-          'Encoded + scaled (prepared)',
-          'Label-encoded categoricals, z-score scaled numerics. Standard input for tree-based models.',
-          false,
-        ));
-        dsCard.appendChild(makeOption(
-          data.clean_file_id,
-          'Clean data (imputed, original scale)',
-          'Missing values filled via median / mode / KNN — original values kept. Useful if you want the model to learn from unscaled features.',
-          true,
-        ));
-        dsCard.lastChild.style.borderBottom = 'none';
-        content.appendChild(dsCard);
-      }
-
-      const labelTitle = document.createElement('div');
-      labelTitle.className = 'section-title';
-      labelTitle.textContent = 'Nature of label';
-      content.appendChild(labelTitle);
-
-      const labelCard = document.createElement('div');
-      labelCard.className = 'summary-card';
-      labelCard.innerHTML = `
-        <div class="summary-row">
-          <span>Label — ${escHtml(label)}</span>
-          <span><span class="task-badge ${taskType}">${labelKind} &rarr; ${taskType}</span></span>
-        </div>
-        <div class="summary-row" style="margin-top:6px"><span style="color:#64748b">
-          ${isCategorical
-            ? 'Label was label-encoded from categorical values, so this trains classifiers.'
-            : 'Label is numeric (standard-scaled), so this trains regressors.'}
-        </span></div>`;
-      content.appendChild(labelCard);
-
-      const trainTitle = document.createElement('div');
-      trainTitle.className = 'section-title';
-      trainTitle.textContent = 'Train models';
-      content.appendChild(trainTitle);
-
-      const trainBtn = document.createElement('button');
-      trainBtn.className = 'btn';
-      trainBtn.textContent = `Train GradientBoosting, LightGBM & CatBoost (${taskType})`;
-      content.appendChild(trainBtn);
-
-      // Show GPU badge based on server health
-      const gpuBadge = document.createElement('span');
-      gpuBadge.style.cssText = 'display:inline-flex;align-items:center;gap:5px;font-size:.72rem;font-weight:700;padding:3px 10px;border-radius:999px;margin-left:10px;vertical-align:middle;background:#1e1b4b;color:#a5b4fc';
-      gpuBadge.textContent = 'checking GPU…';
-      trainBtn.insertAdjacentElement('afterend', gpuBadge);
-      fetch('/health').then(r => r.json()).then(h => {
-        if (h.gpu) {
-          gpuBadge.style.background = '#064e3b';
-          gpuBadge.style.color = '#6ee7b7';
-          gpuBadge.textContent = '⚡ GPU enabled (LightGBM + CatBoost)';
-        } else {
-          gpuBadge.style.background = '#1e2430';
-          gpuBadge.style.color = '#64748b';
-          gpuBadge.textContent = 'CPU only';
-        }
-      }).catch(() => { gpuBadge.style.display = 'none'; });
+      const runBtn = document.createElement('button');
+      runBtn.className = 'btn';
+      runBtn.textContent = 'Run training';
+      content.appendChild(runBtn);
 
       const resultsHost = document.createElement('div');
       content.appendChild(resultsHost);
 
-      trainBtn.addEventListener('click', async () => {
-        trainBtn.disabled = true;
-        trainBtn.textContent = 'Training…';
-        resultsHost.innerHTML = '';
-        let es = null;
-        let startData = null;
+      runBtn.addEventListener('click', () => runTraining(data, label, runBtn, resultsHost));
+    }
 
-        function done() {
-          if (es) { es.close(); es = null; }
-          trainBtn.disabled = false;
-          trainBtn.textContent = `Train GradientBoosting, LightGBM & CatBoost (${taskType})`;
-        }
+    function runTraining(data, label, runBtn, resultsHost) {
+      runBtn.disabled = true;
+      runBtn.textContent = 'Running…';
+      resultsHost.innerHTML = '';
+      let es = null;
 
-        function showError(msg) {
-          done();
-          if (msg === 'STALE_FILE') {
-            resultsHost.innerHTML = `<div id="error-msg" style="padding:20px 0">
-              The prepared file is no longer on the server (only the most recent upload is kept).
-              <br><a class="download-link" href="/preparation">&larr; Go re-run Data Preparation</a>
-            </div>`;
-          } else {
-            resultsHost.innerHTML += `<div id="error-msg" style="padding:20px 0">${escHtml(msg)}</div>`;
-          }
-        }
+      function done() {
+        if (es) { es.close(); es = null; }
+        runBtn.disabled = false;
+        runBtn.textContent = 'Run training';
+      }
+      function showError(msg) {
+        done();
+        resultsHost.innerHTML += `<div id="error-msg" style="padding:20px 0">${escHtml(msg)}</div>`;
+      }
 
-        // Step 1: POST params → get a job_id
+      (async () => {
         let jobId;
         try {
           const init = await fetch('/train/init', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              prepared_file_id: trainFileId,
+              clean_file_id: data.clean_file_id,
               columns: data.columns,
               label,
-              label_kind: labelKind,
+              label_kind: 'categorical',
+              sample_frac: 0.1,
             }),
           });
           if (!init.ok) {
             const err = await init.json().catch(() => ({}));
-            showError(init.status === 404 ? 'STALE_FILE' : (err.detail || `Request failed (${init.status})`));
+            showError(err.detail || `Request failed (${init.status})`);
             return;
           }
           ({ job_id: jobId } = await init.json());
@@ -331,231 +231,243 @@
           return;
         }
 
-        // Step 2: open EventSource — browser handles SSE parsing natively
         es = new EventSource(`/train/stream/${jobId}`);
+        let compareModels = [];
+        let sampleInfo = null;
 
         es.addEventListener('error', (e) => {
           const d = safeJSON(e.data);
-          showError(d ? (d.status === 404 ? 'STALE_FILE' : d.detail) : 'Stream error');
+          showError(d ? d.detail : 'Stream error');
         });
-        es.addEventListener('start', (e) => {
-          startData = safeJSON(e.data);
-          if (startData) renderSkeleton(resultsHost, startData);
+        es.addEventListener('sample_ready', (e) => {
+          sampleInfo = safeJSON(e.data);
+          renderSampleNote(resultsHost, sampleInfo);
         });
-        es.addEventListener('training', (e) => {
+        es.addEventListener('compare_start', (e) => {
           const d = safeJSON(e.data);
-          if (d) setModelStatus(d.model, 'training');
+          if (d) { compareModels = d.models; renderCompareSkeleton(resultsHost, d.models); }
         });
-        es.addEventListener('result', (e) => {
+        es.addEventListener('compare_result', (e) => {
           const d = safeJSON(e.data);
-          if (d) setModelResult(d, startData);
+          if (d) setCompareResult(d);
         });
-        es.addEventListener('ensembles', (e) => {
+        es.addEventListener('leaderboard_done', (e) => {
           const d = safeJSON(e.data);
-          if (d) renderEnsembles(resultsHost, d.ensemble_results, startData);
+          if (d) markTop3(d.top3);
+        });
+        es.addEventListener('full_setup', (e) => {
+          const d = safeJSON(e.data);
+          if (d) renderFullSetupNote(resultsHost, d);
+        });
+        es.addEventListener('individual_result', (e) => {
+          const d = safeJSON(e.data);
+          if (d) renderIndividualResult(resultsHost, d);
+        });
+        es.addEventListener('ensemble_result', (e) => {
+          const d = safeJSON(e.data);
+          if (d) renderEnsembleResult(resultsHost, d);
         });
         es.addEventListener('saved', (e) => {
           const d = safeJSON(e.data);
           if (d) renderSaved(resultsHost, d.saved_models);
         });
-        es.addEventListener('done', (e) => {
-          const d = safeJSON(e.data);
-          if (d) {
-            sessionStorage.setItem('trainingData', JSON.stringify({ ...d, label_kind: labelKind }));
-            renderNextBanner(resultsHost, d);
-          }
-          done();
-        });
-
-        // generic EventSource error (network drop etc.)
+        es.addEventListener('done', () => done());
         es.onerror = () => {
           if (es && es.readyState === EventSource.CLOSED) {
             showError('Connection lost during training.');
           }
         };
-      });
-
-      function safeJSON(str) {
-        try { return JSON.parse(str); } catch { return null; }
-      }
+      })();
     }
 
-    const MODEL_LABELS = { gradient_boosting: 'GradientBoosting', lightgbm: 'LightGBM', catboost: 'CatBoost' };
-
-    // ── incremental rendering helpers ────────────────────────────────────────
-
-    function metricKeys(taskType) {
-      return taskType === 'classification'
-        ? [['accuracy','Accuracy'],['f1_weighted','F1 (weighted)']]
-        : [['rmse','RMSE'],['mae','MAE'],['r2','R²']];
-    }
-
-    function renderSkeleton(host, d) {
-      host.innerHTML = '';
-
+    function renderSampleNote(host, d) {
       const note = document.createElement('div');
-      note.style.cssText = 'color:#64748b;font-size:.8rem;margin-bottom:10px';
-      note.textContent = `Trained on ${d.n_train} rows, evaluated on ${d.n_test} rows · task: ${d.task_type} · features: ${d.feature_columns.length}`;
+      note.className = 'note';
+      note.textContent = `Comparing models on ${d.n_sample.toLocaleString()} rows (${Math.round(d.sample_frac*100)}% stratified sample of ${d.n_total.toLocaleString()} total rows)…`;
       host.appendChild(note);
+    }
 
-      if (d.excluded_id_columns && d.excluded_id_columns.length) {
-        const idNote = document.createElement('div');
-        idNote.style.cssText = 'color:#64748b;font-size:.78rem;margin-bottom:14px';
-        idNote.textContent = `Excluded as identifier column${d.excluded_id_columns.length>1?'s':''}: ${d.excluded_id_columns.join(', ')}`;
-        host.appendChild(idNote);
-      }
+    function metricCells(prefix) {
+      return METRIC_KEYS.map(([k]) => `<td id="${prefix}-${cssKey(k)}"><span style="color:#334155">waiting…</span></td>`).join('');
+    }
+    function cssKey(k) { return k.replace('.', ''); }
 
-      const keys = metricKeys(d.task_type);
+    function renderCompareSkeleton(host, models) {
+      const title = document.createElement('div');
+      title.className = 'section-title';
+      title.textContent = 'Model comparison — 10% sample';
+      host.appendChild(title);
+
+      const wrap = document.createElement('div');
+      wrap.className = 'table-wrap';
       const table = document.createElement('table');
       table.className = 'model-table';
-      table.id = 'model-results-table';
-      table.innerHTML = `<thead><tr><th>Model</th><th>Time</th>${keys.map(([,l])=>`<th>${l}</th>`).join('')}</tr></thead>`;
+      table.id = 'compare-table';
+      table.innerHTML = `<thead><tr><th>Model</th><th>Time</th>${METRIC_KEYS.map(([,l])=>`<th>${l}</th>`).join('')}</tr></thead>`;
       const tbody = document.createElement('tbody');
-      table.appendChild(tbody);
-      d.models.forEach(name => {
+      models.forEach(name => {
         const tr = document.createElement('tr');
-        tr.id = `row-${name}`;
-        tr.innerHTML = `<td class="model-name">${MODEL_LABELS[name]||name}</td>
-          <td id="time-${name}" style="color:#64748b">—</td>
-          ${keys.map(([k])=>`<td id="cell-${name}-${k}"><span style="color:#334155">waiting…</span></td>`).join('')}`;
+        tr.id = `crow-${name}`;
+        tr.innerHTML = `<td class="model-name" id="cname-${name}">${MODEL_LABELS[name]||name}</td>
+          <td id="ctime-${name}" style="color:#64748b">—</td>
+          ${metricCells(`ccell-${name}`)}`;
         tbody.appendChild(tr);
       });
-      host.appendChild(table);
-
-      // placeholders for ensembles + saved + banner (rendered later)
-      const ensHost = document.createElement('div');
-      ensHost.id = 'ens-host';
-      host.appendChild(ensHost);
-
-      const savedHost = document.createElement('div');
-      savedHost.id = 'saved-host';
-      host.appendChild(savedHost);
-
-      const bannerHost = document.createElement('div');
-      bannerHost.id = 'banner-host';
-      host.appendChild(bannerHost);
+      table.appendChild(tbody);
+      wrap.appendChild(table);
+      host.appendChild(wrap);
     }
 
-    function setModelStatus(name, status) {
-      const keys = ['accuracy','f1_weighted','rmse','mae','r2'];
-      keys.forEach(k => {
-        const cell = document.getElementById(`cell-${name}-${k}`);
-        if (cell) cell.innerHTML = `<span style="color:#6366f1;animation:pulse 1s infinite">training…</span>`;
-      });
-    }
-
-    function setModelResult(d, startData) {
-      const taskType = startData ? startData.task_type : 'classification';
-      const keys = metricKeys(taskType);
-      const rankKey = taskType === 'classification' ? 'accuracy' : 'r2';
-
-      const timeCell = document.getElementById(`time-${d.model}`);
+    function setCompareResult(d) {
+      const timeCell = document.getElementById(`ctime-${d.model}`);
       if (timeCell) timeCell.textContent = `${d.elapsed_s}s`;
-
       if (d.error) {
-        keys.forEach(([k]) => {
-          const cell = document.getElementById(`cell-${d.model}-${k}`);
+        METRIC_KEYS.forEach(([k]) => {
+          const cell = document.getElementById(`ccell-${d.model}-${cssKey(k)}`);
           if (cell) cell.innerHTML = `<span class="metric-error">${escHtml(d.error)}</span>`;
         });
         return;
       }
-
-      keys.forEach(([k]) => {
-        const cell = document.getElementById(`cell-${d.model}-${k}`);
+      METRIC_KEYS.forEach(([k]) => {
+        const cell = document.getElementById(`ccell-${d.model}-${cssKey(k)}`);
         if (cell) cell.textContent = d.metrics[k] ?? '—';
       });
-
-      // re-evaluate best row
-      const tbody = document.querySelector('#model-results-table tbody');
-      if (!tbody) return;
+      // re-evaluate best-by-accuracy row
       let bestName = null, bestScore = null;
-      document.querySelectorAll('[id^="row-"]').forEach(tr => {
-        const name = tr.id.replace('row-','');
-        const cell = document.getElementById(`cell-${name}-${rankKey}`);
+      document.querySelectorAll('#compare-table [id^="crow-"]').forEach(tr => {
+        const name = tr.id.replace('crow-','');
+        const cell = document.getElementById(`ccell-${name}-Accuracy`);
         if (!cell) return;
         const val = parseFloat(cell.textContent);
-        if (!isNaN(val) && (bestScore === null || val > bestScore)) {
-          bestScore = val; bestName = name;
-        }
+        if (!isNaN(val) && (bestScore === null || val > bestScore)) { bestScore = val; bestName = name; }
       });
-      document.querySelectorAll('[id^="row-"]').forEach(tr => {
-        const name = tr.id.replace('row-','');
-        tr.className = name === bestName ? 'best-row' : '';
-        const nameCell = tr.querySelector('.model-name');
-        if (nameCell) {
-          const badge = name === bestName ? '<span class="best-badge">best</span>' : '';
-          nameCell.innerHTML = `${MODEL_LABELS[name]||name}${badge}`;
+      document.querySelectorAll('#compare-table [id^="crow-"]').forEach(tr => {
+        const name = tr.id.replace('crow-','');
+        tr.classList.toggle('best-row', name === bestName);
+        const nameCell = document.getElementById(`cname-${name}`);
+        if (nameCell) nameCell.innerHTML = `${MODEL_LABELS[name]||name}${name === bestName ? '<span class="best-badge">best</span>' : ''}`;
+      });
+    }
+
+    function markTop3(top3) {
+      top3.forEach(name => {
+        const tr = document.getElementById(`crow-${name}`);
+        if (tr) tr.classList.add('top3-row');
+        const nameCell = document.getElementById(`cname-${name}`);
+        if (nameCell && !nameCell.innerHTML.includes('top3-badge')) {
+          nameCell.innerHTML += '<span class="top3-badge">top 3</span>';
         }
       });
     }
 
-    function renderEnsembles(host, ensembles, startData) {
-      const ensHost = document.getElementById('ens-host');
-      if (!ensHost || !ensembles.length) return;
-      ensHost.innerHTML = '';
-      const taskType = startData ? startData.task_type : 'classification';
-      const keys = metricKeys(taskType);
-      const rankKey = taskType === 'classification' ? 'accuracy' : 'r2';
-
+    function renderFullSetupNote(host, d) {
       const title = document.createElement('div');
       title.className = 'section-title';
-      title.textContent = 'Voting ensembles (model combinations)';
-      ensHost.appendChild(title);
+      title.textContent = 'Top 3 — retrained on full dataset';
+      host.appendChild(title);
+      const note = document.createElement('div');
+      note.className = 'note';
+      note.textContent = `Trained on ${d.n_train.toLocaleString()} rows, evaluated on ${d.n_test.toLocaleString()} held-out rows.`;
+      host.appendChild(note);
+      const wrap = document.createElement('div');
+      wrap.className = 'table-wrap';
+      wrap.id = 'individual-wrap';
+      const table = document.createElement('table');
+      table.className = 'model-table';
+      table.innerHTML = `<thead><tr><th>Model</th><th>Time</th>${METRIC_KEYS.map(([,l])=>`<th>${l}</th>`).join('')}</tr></thead>`;
+      table.appendChild(document.createElement('tbody'));
+      wrap.appendChild(table);
+      host.appendChild(wrap);
+    }
 
-      let bestEns = null, bestScore = null;
-      ensembles.forEach(e => {
-        const s = e[rankKey];
-        if (s != null && (bestScore === null || s > bestScore)) { bestScore = s; bestEns = e; }
-      });
+    function renderIndividualResult(host, d) {
+      const wrap = document.getElementById('individual-wrap');
+      if (!wrap) return;
+      const tbody = wrap.querySelector('tbody');
+      const tr = document.createElement('tr');
+      if (d.error) {
+        tr.innerHTML = `<td class="model-name">${MODEL_LABELS[d.model]||d.model}</td><td>${d.elapsed_s}s</td>
+          <td colspan="${METRIC_KEYS.length}" class="metric-error">${escHtml(d.error)}</td>`;
+      } else {
+        tr.innerHTML = `<td class="model-name">${MODEL_LABELS[d.model]||d.model}</td><td>${d.elapsed_s}s</td>
+          ${METRIC_KEYS.map(([k]) => `<td>${d.metrics[k] ?? '—'}</td>`).join('')}`;
+      }
+      tbody.appendChild(tr);
 
-      const t = document.createElement('table');
-      t.className = 'model-table';
-      t.innerHTML = `<thead><tr><th>Models</th><th>Voting</th>${keys.map(([,l])=>`<th>${l}</th>`).join('')}</tr></thead>`;
-      const tb = document.createElement('tbody');
-      ensembles.forEach(e => {
-        const tr = document.createElement('tr');
-        if (e === bestEns) tr.className = 'best-row';
-        const names = e.models.map(n => MODEL_LABELS[n]||n).join(' + ');
-        const vl = e.voting === 'soft' ? 'Soft' : e.voting === 'hard' ? 'Hard' : 'Average';
-        const badge = e === bestEns ? '<span class="best-badge">best</span>' : '';
-        tr.innerHTML = `<td class="model-name">${escHtml(names)}${badge}</td><td>${vl}</td>${keys.map(([k])=>`<td>${e[k]??'—'}</td>`).join('')}`;
-        tb.appendChild(tr);
+      if (!document.getElementById('ensembles-title')) {
+        const title = document.createElement('div');
+        title.id = 'ensembles-title';
+        title.className = 'section-title';
+        title.textContent = 'Soft-voting ensembles (permutations of the top 3, full dataset)';
+        host.appendChild(title);
+        const wrap2 = document.createElement('div');
+        wrap2.className = 'table-wrap';
+        wrap2.id = 'ensembles-wrap';
+        const table2 = document.createElement('table');
+        table2.className = 'model-table';
+        table2.innerHTML = `<thead><tr><th>Models</th><th>Voting</th><th>Time</th>${METRIC_KEYS.map(([,l])=>`<th>${l}</th>`).join('')}</tr></thead>`;
+        table2.appendChild(document.createElement('tbody'));
+        wrap2.appendChild(table2);
+        host.appendChild(wrap2);
+      }
+    }
+
+    function renderEnsembleResult(host, d) {
+      const wrap = document.getElementById('ensembles-wrap');
+      if (!wrap) return;
+      const tbody = wrap.querySelector('tbody');
+      const names = d.models.map(m => MODEL_LABELS[m]||m).join(' + ');
+      const tr = document.createElement('tr');
+      if (d.error) {
+        tr.innerHTML = `<td class="model-name">${escHtml(names)}</td><td>Soft</td><td>${d.elapsed_s}s</td>
+          <td colspan="${METRIC_KEYS.length}" class="metric-error">${escHtml(d.error)}</td>`;
+      } else {
+        tr.innerHTML = `<td class="model-name">${escHtml(names)}</td><td>Soft</td><td>${d.elapsed_s}s</td>
+          ${METRIC_KEYS.map(([k]) => `<td>${d.metrics[k] ?? '—'}</td>`).join('')}`;
+      }
+      tbody.appendChild(tr);
+
+      // highlight best row by Accuracy across all ensemble rows
+      let bestTr = null, bestScore = null;
+      Array.from(tbody.children).forEach(row => {
+        const cells = row.querySelectorAll('td');
+        const accIdx = 3 + METRIC_KEYS.findIndex(([k]) => k === 'Accuracy');
+        const val = parseFloat(cells[accIdx] && cells[accIdx].textContent);
+        if (!isNaN(val) && (bestScore === null || val > bestScore)) { bestScore = val; bestTr = row; }
       });
-      t.appendChild(tb);
-      ensHost.appendChild(t);
+      Array.from(tbody.children).forEach(row => row.classList.toggle('best-row', row === bestTr));
     }
 
     function renderSaved(host, savedModels) {
-      const savedHost = document.getElementById('saved-host');
-      if (!savedHost || !savedModels.length) return;
-      savedHost.innerHTML = '';
+      if (!savedModels || !savedModels.length) return;
       const title = document.createElement('div');
       title.className = 'section-title';
       title.textContent = 'Saved models';
-      savedHost.appendChild(title);
+      host.appendChild(title);
       const card = document.createElement('div');
       card.className = 'summary-card';
+      card.innerHTML = `<div class="note" style="margin-bottom:12px">
+        PyCaret-native pickles saved to <code>models/</code> on the server. These use a different
+        environment (PyCaret's own Python/scikit-learn versions) than the Inference page, so they
+        aren't loadable there yet — kept here for the record.
+      </div>`;
       savedModels.forEach(s => {
         card.innerHTML += `<div class="summary-row">
-          <span>${MODEL_LABELS[s.model]||s.model} (${s.metric}: ${s.score})</span>
+          <span>${MODEL_LABELS[s.model]||s.model}</span>
           <span style="font-weight:400;color:#64748b">${escHtml(s.filename)}</span>
         </div>`;
       });
-      savedHost.appendChild(card);
+      host.appendChild(card);
     }
 
-    function renderNextBanner(host, result) {
-      const bannerHost = document.getElementById('banner-host');
-      if (!bannerHost || !result.saved_models.length) return;
-      bannerHost.innerHTML = '';
-      const banner = document.createElement('a');
-      banner.className = 'next-banner';
-      banner.href = '/inference';
-      banner.innerHTML = `
-        <span class="next-banner-text">Next: <strong>Inference</strong> — upload test.csv and predict with the best model</span>
-        <span class="next-banner-arrow">&rarr;</span>`;
-      bannerHost.appendChild(banner);
-    }
+    // Data Collection resets all progress — confirm before navigating
+    document.querySelector('.main-nav a[href="/"]').addEventListener('click', function(e) {
+      e.preventDefault();
+      if (confirm('Going to Data Collection will clear all current progress (preparation, training, inference). Continue?')) {
+        sessionStorage.clear();
+        window.location.href = '/';
+      }
+    });
   </script>
 </body>
 </html>

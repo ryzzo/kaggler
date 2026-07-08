@@ -365,6 +365,8 @@
             submitBtn.textContent = result.detail ?? 'Error — retry';
             return;
           }
+          sessionStorage.removeItem('preparedData');
+          sessionStorage.removeItem('trainingData');
           sessionStorage.setItem('analysisData', JSON.stringify(result));
           window.location.href = '/analysis';
         } catch (err) {
