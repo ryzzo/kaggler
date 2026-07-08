@@ -154,7 +154,28 @@
         ? [['Accuracy','Accuracy'],['AUC','AUC'],['Recall','Recall'],['Prec.','Prec.'],['F1','F1'],['Kappa','Kappa'],['MCC','MCC']]
         : [['MAE','MAE'],['MSE','MSE'],['RMSE','RMSE'],['R2','R2'],['RMSLE','RMSLE'],['MAPE','MAPE']];
     }
-    function rankKeyFor(taskType) { return taskType === 'categorical' ? 'Accuracy' : 'R2'; }
+
+    // Ranking cascade per task: only falls back to the next metric when every
+    // metric before it is tied — mirrors automl_worker.py's _rank_tuple so the
+    // "best" row highlighted here matches what actually gets picked as top 3.
+    const RANK_METRICS = {
+      categorical: ['Accuracy', 'F1', 'MCC', 'Kappa', 'AUC'],
+      numeric: ['R2', 'RMSE', 'MAE', 'MSE'],
+    };
+    const LOWER_IS_BETTER = new Set(['RMSE', 'MAE', 'MSE', 'RMSLE', 'MAPE']);
+    function rankTuple(metrics, taskType) {
+      return RANK_METRICS[taskType].map(k => {
+        const v = parseFloat(metrics[k]);
+        const val = isNaN(v) ? 0 : v;
+        return LOWER_IS_BETTER.has(k) ? -val : val;
+      });
+    }
+    function tupleGreater(a, b) {
+      for (let i = 0; i < a.length; i++) {
+        if (a[i] !== b[i]) return a[i] > b[i];
+      }
+      return false;
+    }
 
     const content = document.getElementById('content');
     const raw = sessionStorage.getItem('preparedData');
@@ -337,7 +358,6 @@
 
     function setCompareResult(d, labelKind) {
       const keys = metricKeysFor(labelKind);
-      const rankKey = rankKeyFor(labelKind);
       const timeCell = document.getElementById(`ctime-${d.model}`);
       if (timeCell) timeCell.textContent = `${d.elapsed_s}s`;
       if (d.error) {
@@ -351,14 +371,24 @@
         const cell = document.getElementById(`ccell-${d.model}-${cssKey(k)}`);
         if (cell) cell.textContent = d.metrics[k] ?? '—';
       });
-      // re-evaluate best row (by Accuracy for classification, R2 for regression)
-      let bestName = null, bestScore = null;
+      // Re-evaluate best row: primary metric first, falling back through the rank
+      // cascade only when everything before it ties — not just the single rankKey
+      // column, so the highlighted "best" model matches what backend picks as top 3.
+      let bestName = null, bestTuple = null;
       document.querySelectorAll('#compare-table [id^="crow-"]').forEach(tr => {
         const name = tr.id.replace('crow-','');
-        const cell = document.getElementById(`ccell-${name}-${rankKey}`);
-        if (!cell) return;
-        const val = parseFloat(cell.textContent);
-        if (!isNaN(val) && (bestScore === null || val > bestScore)) { bestScore = val; bestName = name; }
+        const rowMetrics = {};
+        let hasAny = false;
+        RANK_METRICS[labelKind].forEach(k => {
+          const cell = document.getElementById(`ccell-${name}-${cssKey(k)}`);
+          if (cell && cell.textContent.trim() !== '' && cell.textContent !== '—') {
+            rowMetrics[k] = cell.textContent;
+            hasAny = true;
+          }
+        });
+        if (!hasAny) return;
+        const tuple = rankTuple(rowMetrics, labelKind);
+        if (bestTuple === null || tupleGreater(tuple, bestTuple)) { bestTuple = tuple; bestName = name; }
       });
       document.querySelectorAll('#compare-table [id^="crow-"]').forEach(tr => {
         const name = tr.id.replace('crow-','');

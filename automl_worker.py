@@ -30,8 +30,26 @@ CANDIDATE_MODELS_REGRESSION = [
     "huber", "svm", "knn", "dt", "rf", "et", "ada", "gbr", "lightgbm", "catboost", "dummy",
 ]
 
-# Which metric to rank the leaderboard by, per task.
-RANK_METRIC = {"categorical": "Accuracy", "numeric": "R2"}
+# Ranking cascade per task: primary metric first, then tie-breakers in order —
+# a model only falls back to the next metric when every metric before it is tied.
+RANK_METRICS = {
+    "categorical": ["Accuracy", "F1", "MCC", "Kappa", "AUC"],
+    "numeric": ["R2", "RMSE", "MAE", "MSE"],
+}
+# Metrics where a *lower* value is better (everything else is higher-is-better).
+LOWER_IS_BETTER = {"RMSE", "MAE", "MSE", "RMSLE", "MAPE"}
+
+
+def _rank_tuple(metrics: dict, label_kind: str) -> tuple:
+    """Sort key for ranking models: compares each metric in RANK_METRICS in turn,
+    only moving to the next one when the previous is tied (equal after rounding).
+    Values are sign-flipped for lower-is-better metrics so a plain descending sort
+    on the tuple always means 'better'."""
+    out = []
+    for key in RANK_METRICS[label_kind]:
+        v = metrics.get(key, 0.0)
+        out.append(-v if key in LOWER_IS_BETTER else v)
+    return tuple(out)
 
 
 def emit(event: str, **data) -> None:
@@ -107,8 +125,7 @@ def main() -> None:
             emit("compare_result", index=idx, model=mid, error=str(exc),
                  elapsed_s=round(time.perf_counter() - t0, 2))
 
-    rank_metric = RANK_METRIC[label_kind]
-    ranked = sorted(leaderboard, key=lambda r: r["metrics"].get(rank_metric, 0), reverse=True)
+    ranked = sorted(leaderboard, key=lambda r: _rank_tuple(r["metrics"], label_kind), reverse=True)
     top3 = [r["model"] for r in ranked[:3]]
     emit("leaderboard_done", top3=top3)
 
