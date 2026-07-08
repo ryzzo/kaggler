@@ -72,6 +72,17 @@
     .note { color: #64748b; font-size: .8rem; margin-bottom: 10px; }
     .table-wrap { overflow-x: auto; }
 
+    .next-banner {
+      display: flex; align-items: center; justify-content: space-between;
+      background: #1e1b4b; border: 1px solid #312e81; border-radius: 10px;
+      padding: 12px 18px; margin-top: 28px; gap: 12px;
+      text-decoration: none; transition: background .15s, border-color .15s;
+    }
+    .next-banner:hover { background: #252159; border-color: #4338ca; }
+    .next-banner-text { font-size: .88rem; color: #c7d2fe; }
+    .next-banner-text strong { color: #e0e7ff; }
+    .next-banner-arrow { color: #6366f1; font-size: 1.1rem; flex-shrink: 0; }
+
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
   </style>
 </head>
@@ -81,6 +92,7 @@
     <a href="/analysis">Data Exploration</a>
     <a href="/preparation">Data Preparation</a>
     <a href="/training" class="active">Data Training</a>
+    <a href="/hyperparameter">Hyperparameter Search</a>
     <a href="/inference">Inference</a>
   </nav>
   <div id="res-bar" style="
@@ -234,6 +246,9 @@
         es = new EventSource(`/train/stream/${jobId}`);
         let compareModels = [];
         let sampleInfo = null;
+        let top3Models = [];
+        let individualResults = {};
+        let savedModelsList = [];
 
         es.addEventListener('error', (e) => {
           const d = safeJSON(e.data);
@@ -253,7 +268,7 @@
         });
         es.addEventListener('leaderboard_done', (e) => {
           const d = safeJSON(e.data);
-          if (d) markTop3(d.top3);
+          if (d) { top3Models = d.top3; markTop3(d.top3); }
         });
         es.addEventListener('full_setup', (e) => {
           const d = safeJSON(e.data);
@@ -261,7 +276,10 @@
         });
         es.addEventListener('individual_result', (e) => {
           const d = safeJSON(e.data);
-          if (d) renderIndividualResult(resultsHost, d);
+          if (d) {
+            individualResults[d.model] = d.error ? { error: d.error } : d.metrics;
+            renderIndividualResult(resultsHost, d);
+          }
         });
         es.addEventListener('ensemble_result', (e) => {
           const d = safeJSON(e.data);
@@ -269,9 +287,21 @@
         });
         es.addEventListener('saved', (e) => {
           const d = safeJSON(e.data);
-          if (d) renderSaved(resultsHost, d.saved_models);
+          if (d) { savedModelsList = d.saved_models; renderSaved(resultsHost, d.saved_models); }
         });
-        es.addEventListener('done', () => done());
+        es.addEventListener('done', () => {
+          sessionStorage.setItem('trainingData', JSON.stringify({
+            clean_file_id: data.clean_file_id,
+            columns: data.columns,
+            label,
+            label_kind: 'categorical',
+            top3: top3Models,
+            individual_results: individualResults,
+            saved_models: savedModelsList,
+          }));
+          renderNextBanner(resultsHost);
+          done();
+        });
         es.onerror = () => {
           if (es && es.readyState === EventSource.CLOSED) {
             showError('Connection lost during training.');
@@ -458,6 +488,16 @@
         </div>`;
       });
       host.appendChild(card);
+    }
+
+    function renderNextBanner(host) {
+      const banner = document.createElement('a');
+      banner.className = 'next-banner';
+      banner.href = '/hyperparameter';
+      banner.innerHTML = `
+        <span class="next-banner-text">Next: <strong>Hyperparameter Search</strong></span>
+        <span class="next-banner-arrow">&rarr;</span>`;
+      host.appendChild(banner);
     }
 
     // Data Collection resets all progress — confirm before navigating

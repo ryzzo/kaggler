@@ -22,6 +22,7 @@ PREDICTIONS_DIR.mkdir(exist_ok=True)
 # its own venv and is only ever invoked as a subprocess (see automl_worker.py).
 AUTOML_VENV_PYTHON = Path(".venv-automl/bin/python")
 AUTOML_WORKER_SCRIPT = Path("automl_worker.py")
+TUNE_WORKER_SCRIPT = Path("tune_worker.py")
 
 # In-memory analysis cache: populated by /analyze, consumed by /prepare.
 # Keys are file_ids; automatically cleared on server restart.

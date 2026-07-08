@@ -25,6 +25,11 @@ def training_page():
     return FileResponse("static/training.html")
 
 
+@router.get("/hyperparameter")
+def hyperparameter_page():
+    return FileResponse("static/hyperparameter.html")
+
+
 @router.get("/inference")
 def inference_page():
     return FileResponse("static/inference.html")

@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hyperparameter Search</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, sans-serif;
+      background: #0f1117; color: #e2e8f0;
+      min-height: 100vh; padding: 0 24px 60px;
+      max-width: 1100px; margin: 0 auto;
+    }
+
+    .main-nav {
+      position: sticky; top: 0; z-index: 60;
+      background: #0f1117cc; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid #1e2430;
+      display: flex; align-items: center; gap: 0;
+      margin: 0 -24px; padding: 0 24px;
+    }
+    .main-nav a {
+      padding: 14px 20px; font-size: .88rem; font-weight: 600;
+      color: #64748b; text-decoration: none; white-space: nowrap;
+      border-bottom: 2px solid transparent; margin-bottom: -1px;
+      transition: color .15s, border-color .15s;
+    }
+    .main-nav a:hover { color: #cbd5e1; }
+    .main-nav a.active { color: #a5b4fc; border-bottom-color: #6366f1; }
+
+    .top-bar { display: flex; align-items: center; gap: 16px; margin-bottom: 28px; padding-top: 16px; }
+    h1 { font-size: 1.5rem; font-weight: 700; }
+    .subtitle { color: #64748b; font-size: .85rem; margin-top: 2px; }
+
+    #error-msg { color: #fca5a5; font-size: .95rem; padding: 40px 0; text-align: center; }
+
+    .summary-card {
+      background: #111827; border: 1px solid #1e2030; border-radius: 12px;
+      padding: 18px 20px; margin-bottom: 24px;
+    }
+    .summary-card h3 { font-size: .82rem; color: #cbd5e1; margin-bottom: 10px; }
+    .summary-row { display: flex; justify-content: space-between; font-size: .8rem; color: #94a3b8; padding: 4px 0; }
+    .summary-row span:last-child { color: #e2e8f0; font-weight: 600; }
+
+    .section-title {
+      font-size: .72rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .07em; color: #475569; margin: 36px 0 14px;
+      padding-bottom: 8px; border-bottom: 1px solid #1e2430;
+    }
+
+    .btn {
+      background: #4f46e5; color: #fff; border: none; border-radius: 8px;
+      padding: 10px 20px; font-size: .85rem; font-weight: 600; cursor: pointer;
+      transition: background .15s;
+    }
+    .btn:hover { background: #4338ca; }
+    .btn:disabled { background: #2d3748; cursor: not-allowed; }
+
+    .model-pick {
+      display: flex; align-items: flex-start; gap: 12px; cursor: pointer;
+      padding: 10px 0; border-bottom: 1px solid #1e2430;
+    }
+    .model-pick:last-child { border-bottom: none; }
+    .model-pick input { margin-top: 3px; accent-color: #6366f1; flex-shrink: 0; }
+    .model-pick-name { font-size: .85rem; font-weight: 600; color: #e2e8f0; }
+    .model-pick-meta { font-size: .75rem; color: #64748b; margin-top: 2px; }
+
+    .model-table { width: 100%; border-collapse: collapse; background: #111827; border-radius: 10px; overflow: hidden; border: 1px solid #1e2030; font-size: .78rem; }
+    .model-table th, .model-table td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #1e2430; white-space: nowrap; }
+    .model-table th { color: #64748b; font-size: .68rem; text-transform: uppercase; letter-spacing: .04em; font-weight: 700; }
+    .model-table tr:last-child td { border-bottom: none; }
+    .model-name { font-weight: 600; color: #e2e8f0; }
+    .metric-error { color: #fca5a5; font-size: .74rem; white-space: normal; }
+    .best-row { background: #0d1f17; }
+    .note { color: #64748b; font-size: .8rem; margin-bottom: 10px; }
+    .table-wrap { overflow-x: auto; }
+
+    .model-section { margin-bottom: 28px; }
+    .model-section-title { font-size: .95rem; font-weight: 700; color: #e2e8f0; margin-bottom: 10px; }
+
+    details.params { margin-top: 10px; }
+    details.params summary { cursor: pointer; font-size: .78rem; color: #a5b4fc; }
+    .params-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; margin-top: 8px; }
+    @media (max-width: 700px) { .params-grid { grid-template-columns: 1fr; } }
+    .param-row { display: flex; justify-content: space-between; font-size: .74rem; color: #94a3b8; padding: 2px 0; border-bottom: 1px solid #1e2430; }
+    .param-row span:last-child { color: #cbd5e1; font-variant-numeric: tabular-nums; }
+
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+  </style>
+</head>
+<body>
+  <nav class="main-nav">
+    <a href="/">Data Collection</a>
+    <a href="/analysis">Data Exploration</a>
+    <a href="/preparation">Data Preparation</a>
+    <a href="/training">Data Training</a>
+    <a href="/hyperparameter" class="active">Hyperparameter Search</a>
+    <a href="/inference">Inference</a>
+  </nav>
+  <div id="res-bar" style="
+    font-size:.72rem;font-weight:600;color:#64748b;
+    display:flex;align-items:center;flex-wrap:wrap;gap:14px;
+    padding:6px 0 0;margin-bottom:4px;
+  "></div>
+  <script>
+    (function(){
+      const bar = document.getElementById('res-bar');
+      function pill(label,pct,color){
+        return `<span style="display:inline-flex;align-items:center;gap:6px">
+          <span style="color:#94a3b8">${label}</span>
+          <span style="background:#1e2430;border-radius:999px;overflow:hidden;width:64px;height:7px;display:inline-block">
+            <span style="display:block;height:100%;width:${Math.min(pct,100)}%;background:${color};border-radius:999px;transition:width .4s"></span>
+          </span>
+          <span style="color:#cbd5e1">${pct}%</span>
+        </span>`;
+      }
+      async function refresh(){
+        try{
+          const d = await fetch('/resources').then(r=>r.json());
+          let html = '';
+          html += pill('CPU', d.cpu_pct, '#6366f1');
+          if(d.ram && d.ram.total_mb){
+            html += pill(`RAM ${d.ram.used_mb}/${d.ram.total_mb} MB`, d.ram.percent, '#0ea5e9');
+          }
+          bar.innerHTML = html;
+        }catch(e){ bar.innerHTML = ''; }
+      }
+      refresh();
+      setInterval(refresh, 5000);
+    })();
+  </script>
+
+  <div class="top-bar">
+    <div>
+      <h1>Hyperparameter Search</h1>
+      <div class="subtitle">Tune the top models from Data Training: search on a 10% sample, then refit the best params on the full dataset.</div>
+    </div>
+  </div>
+
+  <div id="content"></div>
+
+  <script>
+    function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+    function safeJSON(str) { try { return JSON.parse(str); } catch { return null; } }
+
+    const MODEL_LABELS = {
+      lr: 'Logistic Regression', knn: 'KNN', nb: 'Naive Bayes', dt: 'Decision Tree',
+      svm: 'SVM (Linear)', ridge: 'Ridge Classifier', rf: 'Random Forest', qda: 'QDA',
+      ada: 'AdaBoost', gbc: 'Gradient Boosting', lda: 'LDA', et: 'Extra Trees',
+      lightgbm: 'LightGBM', catboost: 'CatBoost', dummy: 'Dummy (baseline)',
+    };
+    const METRIC_KEYS = [['Accuracy','Accuracy'],['AUC','AUC'],['Recall','Recall'],['Prec.','Prec.'],['F1','F1'],['Kappa','Kappa'],['MCC','MCC']];
+
+    const content = document.getElementById('content');
+    const trainingRaw = sessionStorage.getItem('trainingData');
+
+    if (!trainingRaw) {
+      content.innerHTML = `<div id="error-msg">
+        No training results found. <a class="download-link" href="/training" style="color:#a5b4fc">Go run Data Training first</a>.
+      </div>`;
+    } else {
+      const training = JSON.parse(trainingRaw);
+      if (!training.top3 || !training.top3.length) {
+        content.innerHTML = `<div id="error-msg">
+          No top-3 models from the last training run. <a class="download-link" href="/training" style="color:#a5b4fc">Go re-run Data Training</a>.
+        </div>`;
+      } else {
+        renderApp(training);
+      }
+    }
+
+    function renderApp(training) {
+      const card = document.createElement('div');
+      card.className = 'summary-card';
+      card.innerHTML = `
+        <h3>From Data Training</h3>
+        <div class="summary-row"><span>Label</span><span>${escHtml(training.label)} (classification)</span></div>
+        <div class="summary-row"><span>Top 3 models</span><span>${training.top3.map(m => MODEL_LABELS[m]||m).join(', ')}</span></div>`;
+      content.appendChild(card);
+
+      const title = document.createElement('div');
+      title.className = 'section-title';
+      title.textContent = 'Select models to tune';
+      content.appendChild(title);
+
+      const pickCard = document.createElement('div');
+      pickCard.className = 'summary-card';
+      const selected = new Set();
+
+      training.top3.forEach(mid => {
+        const metrics = (training.individual_results || {})[mid];
+        const label = document.createElement('label');
+        label.className = 'model-pick';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = mid;
+        cb.addEventListener('change', () => {
+          if (cb.checked) selected.add(mid); else selected.delete(mid);
+          runBtn.disabled = selected.size === 0;
+        });
+        const txt = document.createElement('div');
+        const metaText = metrics && !metrics.error
+          ? `Current (full dataset): Accuracy ${metrics.Accuracy ?? '—'}, F1 ${metrics.F1 ?? '—'}`
+          : 'No baseline metrics available';
+        txt.innerHTML = `<div class="model-pick-name">${MODEL_LABELS[mid]||mid}</div>
+          <div class="model-pick-meta">${escHtml(metaText)}</div>`;
+        label.appendChild(cb);
+        label.appendChild(txt);
+        pickCard.appendChild(label);
+      });
+      content.appendChild(pickCard);
+
+      const runTitle = document.createElement('div');
+      runTitle.className = 'section-title';
+      runTitle.textContent = 'Run search';
+      content.appendChild(runTitle);
+
+      const runBtn = document.createElement('button');
+      runBtn.className = 'btn';
+      runBtn.textContent = 'Run hyperparameter search';
+      runBtn.disabled = true;
+      content.appendChild(runBtn);
+
+      const resultsHost = document.createElement('div');
+      content.appendChild(resultsHost);
+
+      runBtn.addEventListener('click', () => runTune(training, [...selected], runBtn, resultsHost));
+    }
+
+    function runTune(training, modelIds, runBtn, resultsHost) {
+      runBtn.disabled = true;
+      runBtn.textContent = 'Running…';
+      resultsHost.innerHTML = '';
+      let es = null;
+
+      function done() {
+        if (es) { es.close(); es = null; }
+        runBtn.disabled = false;
+        runBtn.textContent = 'Run hyperparameter search';
+      }
+      function showError(msg) {
+        done();
+        resultsHost.innerHTML += `<div id="error-msg" style="padding:20px 0">${escHtml(msg)}</div>`;
+      }
+
+      (async () => {
+        let jobId;
+        try {
+          const init = await fetch('/tune/init', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              clean_file_id: training.clean_file_id,
+              columns: training.columns,
+              label: training.label,
+              label_kind: 'categorical',
+              model_ids: modelIds,
+              sample_frac: 0.1,
+              n_iter: 10,
+              fold: 5,
+            }),
+          });
+          if (!init.ok) {
+            const err = await init.json().catch(() => ({}));
+            showError(err.detail || `Request failed (${init.status})`);
+            return;
+          }
+          ({ job_id: jobId } = await init.json());
+        } catch (e) {
+          showError(e.message);
+          return;
+        }
+
+        es = new EventSource(`/tune/stream/${jobId}`);
+
+        es.addEventListener('error', (e) => {
+          const d = safeJSON(e.data);
+          showError(d ? d.detail : 'Stream error');
+        });
+        es.addEventListener('sample_ready', (e) => {
+          const d = safeJSON(e.data);
+          if (d) renderSampleNote(resultsHost, d);
+        });
+        es.addEventListener('baseline_result', (e) => {
+          const d = safeJSON(e.data);
+          if (d) renderModelSection(resultsHost, d.model, d);
+        });
+        es.addEventListener('tune_result', (e) => {
+          const d = safeJSON(e.data);
+          if (d) renderTuneResult(resultsHost, d.model, d);
+        });
+        es.addEventListener('full_setup', (e) => {
+          const d = safeJSON(e.data);
+          if (d) renderFullSetupNote(resultsHost, d);
+        });
+        es.addEventListener('full_refit_result', (e) => {
+          const d = safeJSON(e.data);
+          if (d) renderFullRefitResult(resultsHost, d.model, d);
+        });
+        es.addEventListener('saved', (e) => {
+          const d = safeJSON(e.data);
+          if (d) renderSaved(resultsHost, d.saved_models);
+        });
+        es.addEventListener('done', () => done());
+        es.onerror = () => {
+          if (es && es.readyState === EventSource.CLOSED) {
+            showError('Connection lost during the hyperparameter search.');
+          }
+        };
+      })();
+    }
+
+    function renderSampleNote(host, d) {
+      const note = document.createElement('div');
+      note.className = 'note';
+      note.textContent = `Searching on ${d.n_sample.toLocaleString()} rows (${Math.round(d.sample_frac*100)}% stratified sample of ${d.n_total.toLocaleString()} total rows)…`;
+      host.appendChild(note);
+    }
+
+    function modelSectionHost(host, mid) {
+      let sec = document.getElementById(`tune-sec-${mid}`);
+      if (!sec) {
+        sec = document.createElement('div');
+        sec.id = `tune-sec-${mid}`;
+        sec.className = 'model-section';
+        sec.innerHTML = `<div class="model-section-title">${MODEL_LABELS[mid]||mid}</div>`;
+        const wrap = document.createElement('div');
+        wrap.className = 'table-wrap';
+        const table = document.createElement('table');
+        table.className = 'model-table';
+        table.innerHTML = `<thead><tr><th>Stage</th><th>Time</th>${METRIC_KEYS.map(([,l])=>`<th>${l}</th>`).join('')}</tr></thead>`;
+        table.appendChild(document.createElement('tbody'));
+        wrap.appendChild(table);
+        sec.appendChild(wrap);
+        host.appendChild(sec);
+      }
+      return sec;
+    }
+
+    function addStageRow(host, mid, stageLabel, d) {
+      const sec = modelSectionHost(host, mid);
+      const tbody = sec.querySelector('tbody');
+      const tr = document.createElement('tr');
+      if (d.error) {
+        tr.innerHTML = `<td class="model-name">${escHtml(stageLabel)}</td><td>${d.elapsed_s}s</td>
+          <td colspan="${METRIC_KEYS.length}" class="metric-error">${escHtml(d.error)}</td>`;
+      } else {
+        tr.innerHTML = `<td class="model-name">${escHtml(stageLabel)}</td><td>${d.elapsed_s}s</td>
+          ${METRIC_KEYS.map(([k]) => `<td>${d.metrics[k] ?? '—'}</td>`).join('')}`;
+      }
+      tbody.appendChild(tr);
+      return tr;
+    }
+
+    function renderModelSection(host, mid, d) {
+      addStageRow(host, mid, 'Baseline (10% sample)', d);
+    }
+
+    function renderTuneResult(host, mid, d) {
+      addStageRow(host, mid, 'Tuned (10% sample)', d);
+      if (!d.error && d.best_params) {
+        const sec = document.getElementById(`tune-sec-${mid}`);
+        const details = document.createElement('details');
+        details.className = 'params';
+        const rows = Object.entries(d.best_params)
+          .map(([k, v]) => `<div class="param-row"><span>${escHtml(k)}</span><span>${escHtml(String(v))}</span></div>`)
+          .join('');
+        details.innerHTML = `<summary>Best hyperparameters found</summary><div class="params-grid">${rows}</div>`;
+        sec.appendChild(details);
+      }
+    }
+
+    function renderFullSetupNote(host, d) {
+      const title = document.createElement('div');
+      title.className = 'section-title';
+      title.textContent = 'Final fit — best hyperparameters on full dataset';
+      host.appendChild(title);
+      const note = document.createElement('div');
+      note.className = 'note';
+      note.textContent = `Trained on ${d.n_train.toLocaleString()} rows, evaluated on ${d.n_test.toLocaleString()} held-out rows.`;
+      host.appendChild(note);
+    }
+
+    function renderFullRefitResult(host, mid, d) {
+      addStageRow(host, mid, 'Tuned (full dataset, holdout)', d);
+    }
+
+    function renderSaved(host, savedModels) {
+      if (!savedModels || !savedModels.length) return;
+      const title = document.createElement('div');
+      title.className = 'section-title';
+      title.textContent = 'Saved models';
+      host.appendChild(title);
+      const card = document.createElement('div');
+      card.className = 'summary-card';
+      card.innerHTML = `<div class="note" style="margin-bottom:12px">
+        PyCaret-native pickles saved to <code>models/</code> on the server. These use a different
+        environment (PyCaret's own Python/scikit-learn versions) than the Inference page, so they
+        aren't loadable there yet — kept here for the record.
+      </div>`;
+      savedModels.forEach(s => {
+        card.innerHTML += `<div class="summary-row">
+          <span>${MODEL_LABELS[s.model]||s.model}</span>
+          <span style="font-weight:400;color:#64748b">${escHtml(s.filename)}</span>
+        </div>`;
+      });
+      host.appendChild(card);
+    }
+
+    // Data Collection resets all progress — confirm before navigating
+    document.querySelector('.main-nav a[href="/"]').addEventListener('click', function(e) {
+      e.preventDefault();
+      if (confirm('Going to Data Collection will clear all current progress (preparation, training, inference). Continue?')) {
+        sessionStorage.clear();
+        window.location.href = '/';
+      }
+    });
+  </script>
+</body>
+</html>
