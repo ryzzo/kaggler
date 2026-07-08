@@ -113,8 +113,7 @@
     .progress-bar-track { background: #1e2430; border-radius: 999px; overflow: hidden; height: 8px; margin: 6px 0 12px; }
     .progress-bar-fill { background: #6366f1; height: 100%; border-radius: 999px; transition: width .3s; }
 
-    .plot-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
-    @media (max-width: 800px) { .plot-grid { grid-template-columns: 1fr; } }
+    .plot-grid { display: grid; grid-template-columns: 1fr; gap: 16px; margin-top: 16px; }
     .plot-box { background: #0f1117; border: 1px solid #1e2030; border-radius: 10px; padding: 8px; }
 
     details.params { margin-top: 10px; }
@@ -123,6 +122,19 @@
     @media (max-width: 700px) { .params-grid { grid-template-columns: 1fr; } }
     .param-row-static { display: flex; justify-content: space-between; font-size: .74rem; color: #94a3b8; padding: 2px 0; border-bottom: 1px solid #1e2430; }
     .param-row-static span:last-child { color: #cbd5e1; font-variant-numeric: tabular-nums; }
+
+    .selected-row { background: #0d1f17; }
+    .selected-badge { font-size: .62rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; padding: 2px 7px; border-radius: 999px; background: #064e3b; color: #6ee7b7; margin-left: 6px; }
+    .select-btn { background: #1e2430; color: #cbd5e1; border: none; border-radius: 6px; padding: 4px 10px; font-size: .72rem; font-weight: 600; cursor: pointer; }
+    .select-btn:hover { background: #2d3748; }
+    .select-btn.is-selected { background: #064e3b; color: #6ee7b7; cursor: default; }
+    .inference-pick-card {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+      background: #1e1b4b; border: 1px solid #312e81; border-radius: 10px;
+      padding: 12px 16px; margin-bottom: 20px; font-size: .82rem; color: #c7d2fe;
+    }
+    .inference-pick-card strong { color: #e0e7ff; }
+    .inference-pick-card a.btn { margin: 0; white-space: nowrap; text-decoration: none; }
 
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
   </style>
@@ -335,6 +347,65 @@
       return taskType === 'categorical' ? DEFAULT_SEARCH_SPACE_CLS : DEFAULT_SEARCH_SPACE_REG;
     }
 
+    // Experiment log accumulates across every run on this page (not wiped when you
+    // tweak the config and train again) so results can be compared and one config
+    // chosen for inference later. Persisted so it survives navigating away and back.
+    const experimentLog = safeJSON(sessionStorage.getItem('hyperparamExperiments')) || [];
+    let selectedExperimentId = (safeJSON(sessionStorage.getItem('selectedInferenceModel')) || {}).experimentId ?? null;
+    let nextRunId = (experimentLog.reduce((max, e) => Math.max(max, e.runId), 0) || 0) + 1;
+    let nextExperimentId = (experimentLog.reduce((max, e) => Math.max(max, e.experimentId), 0) || 0) + 1;
+
+    function saveExperiments() {
+      sessionStorage.setItem('hyperparamExperiments', JSON.stringify(experimentLog));
+    }
+
+    function selectExperimentForInference(entry, training, labelKind) {
+      selectedExperimentId = entry.experimentId;
+      sessionStorage.setItem('selectedInferenceModel', JSON.stringify({
+        experimentId: entry.experimentId,
+        model: entry.model,
+        best_params: entry.best_params,
+        best_value: entry.best_value,
+        metrics: entry.metrics,
+        label: training.label,
+        label_kind: labelKind,
+        feature_columns: training.columns.filter(c => c !== training.label),
+        clean_file_id: training.clean_file_id,
+      }));
+    }
+
+    // Data Training's best-performing model (top3[0], already sorted by rank) is
+    // always available as a candidate for inference — even before anyone runs a
+    // search — so there's always at least one usable configuration to pick. It
+    // uses default (untuned) hyperparameters and Data Training's sample-comparison
+    // score, since it hasn't been fit on the full dataset.
+    function ensureBaselineExperiment(training, labelKind) {
+      const already = experimentLog.some(e => e.source === 'baseline' && e.cleanFileId === training.clean_file_id);
+      if (already) return;
+      const bestModel = training.top3[0];
+      const rankKey = labelKind === 'categorical' ? 'Accuracy' : 'R2';
+      const metrics = (training.compare_results || {})[bestModel];
+      const entry = {
+        experimentId: nextExperimentId++,
+        runId: 0,
+        source: 'baseline',
+        cleanFileId: training.clean_file_id,
+        model: bestModel,
+        n_trials: null,
+        search_space: {},
+        best_value: metrics && !metrics.error ? (metrics[rankKey] ?? null) : null,
+        best_params: {},
+        metrics: null,
+        error: null,
+        timestamp: new Date().toISOString(),
+      };
+      experimentLog.unshift(entry);
+      saveExperiments();
+      if (selectedExperimentId == null) {
+        selectExperimentForInference(entry, training, labelKind);
+      }
+    }
+
     const content = document.getElementById('content');
     const trainingRaw = sessionStorage.getItem('trainingData');
 
@@ -356,6 +427,7 @@
     function renderApp(training) {
       const labelKind = training.label_kind || 'categorical';
       const taskLabel = labelKind === 'categorical' ? 'classification' : 'regression';
+      ensureBaselineExperiment(training, labelKind);
       const card = document.createElement('div');
       card.className = 'summary-card';
       card.innerHTML = `
@@ -548,6 +620,15 @@
       const resultsHost = document.createElement('div');
       content.appendChild(resultsHost);
 
+      const experimentsTitle = document.createElement('div');
+      experimentsTitle.className = 'section-title';
+      experimentsTitle.textContent = 'Experiment log';
+      content.appendChild(experimentsTitle);
+
+      const experimentsHost = document.createElement('div');
+      content.appendChild(experimentsHost);
+      renderExperimentsTable(experimentsHost, training, labelKind);
+
       runBtn.addEventListener('click', () => {
         const payload = [...selected].map(mid => {
           const cfg = modelConfigs[mid];
@@ -563,15 +644,22 @@
           });
           return { model_id: mid, n_trials: cfg.n_trials, search_space };
         });
-        runTune(training, labelKind, payload, runBtn, resultsHost);
+        const runId = nextRunId++;
+        runTune(training, labelKind, payload, runBtn, resultsHost, runId, (entry) => {
+          experimentLog.push(entry);
+          saveExperiments();
+          renderExperimentsTable(experimentsHost, training, labelKind);
+        });
       });
     }
 
-    function runTune(training, labelKind, models, runBtn, resultsHost) {
+    function runTune(training, labelKind, models, runBtn, resultsHost, runId, onExperimentRecorded) {
       runBtn.disabled = true;
       runBtn.textContent = 'Running…';
       resultsHost.innerHTML = '';
       let es = null;
+      const modelsById = Object.fromEntries(models.map(m => [m.model_id, m]));
+      const pendingSearch = {}; // model_id -> { best_value, best_params } from search_done, merged in at full_refit_result
 
       function done() {
         if (es) { es.close(); es = null; }
@@ -630,7 +718,10 @@
         });
         es.addEventListener('search_done', (e) => {
           const d = safeJSON(e.data);
-          if (d) renderSearchDone(d, labelKind);
+          if (d) {
+            renderSearchDone(d, labelKind);
+            if (!d.error) pendingSearch[d.model] = { best_value: d.best_value, best_params: d.best_params };
+          }
         });
         es.addEventListener('full_setup', (e) => {
           const d = safeJSON(e.data);
@@ -638,7 +729,23 @@
         });
         es.addEventListener('full_refit_result', (e) => {
           const d = safeJSON(e.data);
-          if (d) renderFullRefitResult(d.model, d, labelKind);
+          if (d) {
+            renderFullRefitResult(d.model, d, labelKind);
+            const search = pendingSearch[d.model];
+            const cfg = modelsById[d.model];
+            onExperimentRecorded({
+              experimentId: nextExperimentId++,
+              runId,
+              model: d.model,
+              n_trials: cfg ? cfg.n_trials : null,
+              search_space: cfg ? cfg.search_space : {},
+              best_value: search ? search.best_value : null,
+              best_params: search ? search.best_params : null,
+              metrics: d.error ? null : d.metrics,
+              error: d.error || null,
+              timestamp: new Date().toISOString(),
+            });
+          }
         });
         es.addEventListener('saved', (e) => {
           const d = safeJSON(e.data);
@@ -808,6 +915,93 @@
         </div>`;
       });
       host.appendChild(card);
+    }
+
+    function renderExperimentsTable(host, training, labelKind) {
+      host.innerHTML = '';
+      if (!experimentLog.length) {
+        const note = document.createElement('div');
+        note.className = 'note';
+        note.textContent = 'No experiments yet — run a search above. Every run you try (with whatever config and models) gets logged here so you can compare them.';
+        host.appendChild(note);
+        return;
+      }
+
+      if (selectedExperimentId != null) {
+        const chosen = experimentLog.find(e => e.experimentId === selectedExperimentId);
+        if (chosen) {
+          const runLabel = chosen.source === 'baseline' ? 'baseline — best from Data Training' : `run #${chosen.runId}`;
+          const pick = document.createElement('div');
+          pick.className = 'inference-pick-card';
+          pick.innerHTML = `
+            <span>Selected for inference: <strong>${MODEL_LABELS[chosen.model]||chosen.model}</strong> (${runLabel})</span>
+            <a class="btn" href="/inference">Go to Inference &rarr;</a>`;
+          host.appendChild(pick);
+        }
+      }
+
+      const rankKey = labelKind === 'categorical' ? 'Accuracy' : 'R2';
+      const wrap = document.createElement('div');
+      wrap.className = 'table-wrap';
+      const table = document.createElement('table');
+      table.className = 'model-table';
+      table.innerHTML = `<thead><tr>
+        <th>Run</th><th>Model</th><th>Trials</th><th>Best (sample)</th><th>Full dataset ${rankKey}</th><th>Details</th><th>Inference</th>
+      </tr></thead>`;
+      const tbody = document.createElement('tbody');
+
+      [...experimentLog].reverse().forEach(entry => {
+        const tr = document.createElement('tr');
+        tr.className = entry.experimentId === selectedExperimentId ? 'selected-row' : '';
+
+        const bestSample = entry.best_value != null ? entry.best_value : '—';
+        const fullScore = entry.metrics ? (entry.metrics[rankKey] ?? '—') : '—';
+
+        const detailsCell = document.createElement('td');
+        if (entry.error) {
+          detailsCell.innerHTML = `<span class="metric-error">${escHtml(entry.error)}</span>`;
+        } else if (entry.best_params && Object.keys(entry.best_params).length) {
+          const details = document.createElement('details');
+          details.className = 'params';
+          const rows = Object.entries(entry.best_params)
+            .map(([k, v]) => `<div class="param-row-static"><span>${escHtml(k)}</span><span>${escHtml(String(v))}</span></div>`)
+            .join('');
+          details.innerHTML = `<summary>Params</summary><div class="params-grid">${rows}</div>`;
+          detailsCell.appendChild(details);
+        } else {
+          detailsCell.innerHTML = `<span class="note" style="margin:0">Default (not tuned)</span>`;
+        }
+
+        const actionCell = document.createElement('td');
+        if (entry.error) {
+          actionCell.textContent = '—';
+        } else if (entry.experimentId === selectedExperimentId) {
+          actionCell.innerHTML = `<button class="select-btn is-selected" disabled>Selected</button>`;
+        } else {
+          const btn = document.createElement('button');
+          btn.className = 'select-btn';
+          btn.textContent = 'Use for inference';
+          btn.addEventListener('click', () => {
+            selectExperimentForInference(entry, training, labelKind);
+            renderExperimentsTable(host, training, labelKind);
+          });
+          actionCell.appendChild(btn);
+        }
+
+        const runLabel = entry.source === 'baseline' ? 'Baseline' : `#${entry.runId}`;
+        tr.innerHTML = `<td>${runLabel}</td>
+          <td class="model-name">${MODEL_LABELS[entry.model]||entry.model}</td>
+          <td>${entry.n_trials ?? '—'}</td>
+          <td>${bestSample}</td>
+          <td>${fullScore}</td>`;
+        tr.appendChild(detailsCell);
+        tr.appendChild(actionCell);
+        tbody.appendChild(tr);
+      });
+
+      table.appendChild(tbody);
+      wrap.appendChild(table);
+      host.appendChild(wrap);
     }
 
     // Data Collection resets all progress — confirm before navigating

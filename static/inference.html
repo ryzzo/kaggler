@@ -153,10 +153,13 @@
     function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
     const content = document.getElementById('content');
+    const selectedRaw = sessionStorage.getItem('selectedInferenceModel');
     const trainingRaw = sessionStorage.getItem('trainingData');
     const preparedRaw = sessionStorage.getItem('preparedData');
 
-    if (!trainingRaw || !preparedRaw) {
+    if (selectedRaw) {
+      renderSelectedInferenceModel(JSON.parse(selectedRaw));
+    } else if (!trainingRaw || !preparedRaw) {
       content.innerHTML = `<div id="error-msg">
         No trained model found. <a class="download-link" href="/training">Go run Data Training first</a>.
       </div>`;
@@ -278,7 +281,54 @@
     }
 
     function MODEL_LABELS(name) {
-      return { gradient_boosting: 'GradientBoosting', lightgbm: 'LightGBM', catboost: 'CatBoost' }[name] || name;
+      return {
+        gradient_boosting: 'GradientBoosting', lightgbm: 'LightGBM', catboost: 'CatBoost',
+        lr: 'Linear/Logistic Regression', knn: 'KNN', nb: 'Naive Bayes', dt: 'Decision Tree',
+        svm: 'SVM', ridge: 'Ridge', rf: 'Random Forest', qda: 'QDA', ada: 'AdaBoost',
+        gbc: 'Gradient Boosting', gbr: 'Gradient Boosting', lda: 'LDA', et: 'Extra Trees',
+        dummy: 'Dummy (baseline)', lasso: 'Lasso', en: 'Elastic Net', huber: 'Huber',
+      }[name] || name;
+    }
+
+    function renderSelectedInferenceModel(sel) {
+      const taskLabel = sel.label_kind === 'categorical' ? 'classification' : 'regression';
+      const hasParams = sel.best_params && Object.keys(sel.best_params).length;
+
+      const card = document.createElement('div');
+      card.className = 'summary-card';
+      card.innerHTML = `
+        <h3>Selected from Hyperparameter Search</h3>
+        <div class="summary-row"><span>Model</span><span>${escHtml(MODEL_LABELS(sel.model))}</span></div>
+        <div class="summary-row"><span>Label</span><span>${escHtml(sel.label)} (${taskLabel})</span></div>
+        <div class="summary-row"><span>Feature columns</span><span>${sel.feature_columns.length}</span></div>
+        <div class="col-chip-row">${sel.feature_columns.map(c => `<span class="col-chip">${escHtml(c)}</span>`).join('')}</div>`;
+      content.appendChild(card);
+
+      const paramsTitle = document.createElement('div');
+      paramsTitle.className = 'section-title';
+      paramsTitle.textContent = 'Hyperparameters';
+      content.appendChild(paramsTitle);
+
+      const paramsCard = document.createElement('div');
+      paramsCard.className = 'summary-card';
+      if (hasParams) {
+        paramsCard.innerHTML = Object.entries(sel.best_params)
+          .map(([k, v]) => `<div class="summary-row"><span>${escHtml(k)}</span><span>${escHtml(String(v))}</span></div>`)
+          .join('');
+      } else {
+        paramsCard.innerHTML = `<div class="summary-row"><span>Default hyperparameters (not tuned)</span></div>`;
+      }
+      content.appendChild(paramsCard);
+
+      const notice = document.createElement('div');
+      notice.id = 'error-msg';
+      notice.style.padding = '20px 0';
+      notice.innerHTML = `
+        Running inference with models from Hyperparameter Search isn't wired up yet — they're fit
+        with PyCaret's own preprocessing in a separate environment that this page's inference
+        endpoint doesn't support. This is a known limitation, not an error.
+        <br><a class="download-link" href="/hyperparameter">&larr; Back to Hyperparameter Search</a>`;
+      content.appendChild(notice);
     }
 
     function renderResults(host, result) {
