@@ -290,6 +290,17 @@
       }[name] || name;
     }
 
+    // Real iteration counts for LightGBM/CatBoost, an elapsed-time heartbeat for
+    // everything else (no generic incremental-fit hook for most sklearn models).
+    function fitProgressText(d) {
+      const label = MODEL_LABELS(d.model);
+      if (d.total) {
+        const pct = Math.round((d.iteration / d.total) * 100);
+        return `Fitting ${label}: iteration ${d.iteration}/${d.total} (${pct}%) — ${d.elapsed_s}s elapsed…`;
+      }
+      return `Fitting ${label}: still working — ${d.elapsed_s}s elapsed…`;
+    }
+
     function renderSelectedInferenceModel(sel) {
       const taskLabel = sel.label_kind === 'categorical' ? 'classification' : 'regression';
       const hasParams = sel.best_params && Object.keys(sel.best_params).length;
@@ -320,16 +331,152 @@
       }
       content.appendChild(paramsCard);
 
-      const notice = document.createElement('div');
-      notice.id = 'error-msg';
-      notice.style.padding = '20px 0';
-      notice.innerHTML = `
-        Running inference with models from Hyperparameter Search isn't wired up yet — they're fit
-        with PyCaret's own preprocessing in a separate environment that this page's inference
-        endpoint doesn't support. This is a known limitation, not an error.
-        <br><a class="download-link" href="/hyperparameter">&larr; Back to Hyperparameter Search</a>`;
-      content.appendChild(notice);
+      if (!sel.filename) {
+        const note = document.createElement('div');
+        note.className = 'note';
+        note.style.cssText = 'color:#fbbf24;margin-bottom:16px';
+        note.textContent = sel.model
+          ? 'No saved fit for this configuration — running inference will fit it fresh on the full dataset first, which can take a while for slower models.'
+          : '';
+        if (note.textContent) content.appendChild(note);
+      }
+
+      const uploadTitle = document.createElement('div');
+      uploadTitle.className = 'section-title';
+      uploadTitle.textContent = 'Upload test.csv';
+      content.appendChild(uploadTitle);
+
+      const dropZone = document.createElement('div');
+      dropZone.id = 'drop-zone';
+      dropZone.innerHTML = `
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+            d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/>
+        </svg>
+        <p>Drop test.csv here or <span class="browse">browse</span></p>
+        <input type="file" id="file-input" accept=".csv" />
+        <div id="file-chip-host"></div>`;
+      content.appendChild(dropZone);
+
+      const inferBtn = document.createElement('button');
+      inferBtn.className = 'btn';
+      inferBtn.textContent = 'Run inference';
+      inferBtn.disabled = true;
+      content.appendChild(inferBtn);
+
+      const progressHost = document.createElement('div');
+      progressHost.style.marginTop = '10px';
+      content.appendChild(progressHost);
+
+      const resultsHost = document.createElement('div');
+      content.appendChild(resultsHost);
+
+      let selectedFile = null;
+      const fileInput = dropZone.querySelector('#file-input');
+      const chipHost = dropZone.querySelector('#file-chip-host');
+
+      function setFile(file) {
+        selectedFile = file;
+        inferBtn.disabled = !file;
+        chipHost.innerHTML = file
+          ? `<div class="file-chip">${escHtml(file.name)} · ${(file.size/1024).toFixed(1)} KB</div>`
+          : '';
+      }
+
+      dropZone.addEventListener('click', () => fileInput.click());
+      fileInput.addEventListener('change', e => setFile(e.target.files[0] || null));
+      dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('over'); });
+      dropZone.addEventListener('dragleave', () => dropZone.classList.remove('over'));
+      dropZone.addEventListener('drop', e => {
+        e.preventDefault();
+        dropZone.classList.remove('over');
+        const file = e.dataTransfer.files[0];
+        if (file) setFile(file);
+      });
+
+      function setProgress(text) {
+        progressHost.innerHTML = `<div class="note" style="color:#a5b4fc">${escHtml(text)}</div>`;
+      }
+
+      inferBtn.addEventListener('click', async () => {
+        if (!selectedFile) return;
+        inferBtn.disabled = true;
+        inferBtn.textContent = 'Running inference…';
+        resultsHost.innerHTML = '';
+        setProgress('Starting…');
+
+        let es = null;
+        function done() {
+          if (es) { es.close(); es = null; }
+          inferBtn.disabled = false;
+          inferBtn.textContent = 'Run inference';
+        }
+        function showError(msg) {
+          done();
+          progressHost.innerHTML = '';
+          resultsHost.innerHTML = `<div id="error-msg" style="padding:20px 0">${escHtml(msg)}</div>`;
+        }
+
+        let jobId;
+        try {
+          const form = new FormData();
+          form.append('file', selectedFile);
+          form.append('clean_file_id', sel.clean_file_id);
+          form.append('feature_columns', JSON.stringify(sel.feature_columns));
+          form.append('label', sel.label);
+          form.append('label_kind', sel.label_kind);
+          form.append('model_id', sel.model);
+          form.append('best_params', JSON.stringify(sel.best_params || {}));
+          if (sel.filename) form.append('model_filename', sel.filename);
+
+          const init = await fetch('/infer/pycaret/init', { method: 'POST', body: form });
+          if (!init.ok) {
+            const err = await init.json().catch(() => ({}));
+            showError(err.detail || `Request failed (${init.status})`);
+            return;
+          }
+          ({ job_id: jobId } = await init.json());
+        } catch (e) {
+          showError(e.message);
+          return;
+        }
+
+        es = new EventSource(`/infer/pycaret/stream/${jobId}`);
+        es.addEventListener('error', (e) => {
+          const d = safeJSON(e.data);
+          showError(d ? d.detail : 'Stream error');
+        });
+        es.addEventListener('setup_start', () => setProgress('Reconstructing the training preprocessing pipeline…'));
+        es.addEventListener('setup_done', () => setProgress('Preprocessing ready.'));
+        es.addEventListener('loading_saved_model', () => setProgress('Loading the saved fitted model…'));
+        es.addEventListener('fitting_start', () => setProgress('No saved fit — fitting on the full dataset (this can take a while)…'));
+        es.addEventListener('fit_progress', (e) => {
+          const d = safeJSON(e.data);
+          if (d) setProgress(fitProgressText(d));
+        });
+        es.addEventListener('fitting_done', (e) => {
+          const d = safeJSON(e.data);
+          setProgress(`Model fit in ${d ? d.elapsed_s : '?'}s. Predicting…`);
+        });
+        es.addEventListener('predicting_start', (e) => {
+          const d = safeJSON(e.data);
+          setProgress(`Predicting on ${d ? d.n_rows.toLocaleString() : '…'} rows…`);
+        });
+        es.addEventListener('done', (e) => {
+          const d = safeJSON(e.data);
+          progressHost.innerHTML = '';
+          if (d) renderResults(resultsHost, d);
+          done();
+        });
+        es.onerror = () => {
+          if (es && es.readyState === EventSource.CLOSED) {
+            showError('Connection lost during inference.');
+          }
+        };
+      });
     }
+
+    function safeJSON(str) { try { return JSON.parse(str); } catch { return null; } }
 
     function renderResults(host, result) {
       host.innerHTML = '';

@@ -17,7 +17,10 @@ import sys
 import time
 from pathlib import Path
 
+import joblib
 import pandas as pd
+
+from tune_worker import run_with_heartbeat
 
 # Turbo-safe model sets: exclude models known to be extremely slow or degenerate
 # on this kind of tabular data — same idea as pycaret's compare_models turbo=True.
@@ -77,6 +80,8 @@ def main() -> None:
     label: str = args["label"]
     label_kind: str = args["label_kind"]  # "categorical" -> classification, "numeric" -> regression
     sample_frac: float = args.get("sample_frac", 0.1)
+    models_dir = Path(args["models_dir"])
+    run_id: str = args["run_id"]
 
     if label_kind not in ("categorical", "numeric"):
         emit("error", detail="label_kind must be 'categorical' or 'numeric'")
@@ -128,6 +133,30 @@ def main() -> None:
     ranked = sorted(leaderboard, key=lambda r: _rank_tuple(r["metrics"], label_kind), reverse=True)
     top3 = [r["model"] for r in ranked[:3]]
     emit("leaderboard_done", top3=top3)
+
+    # ── Fit + save the single best model on the full dataset ──
+    # Only the #1 model, with default hyperparameters — enough so Inference has a
+    # ready-to-use fit for the default candidate instead of fitting from scratch
+    # (potentially slow) the first time someone runs inference with it.
+    if top3:
+        best_id = top3[0]
+        emit("best_model_fit_start", model=best_id)
+        t0 = time.perf_counter()
+        try:
+            exp2 = ClassificationExperiment() if label_kind == "categorical" else RegressionExperiment()
+            exp2.setup(data=df, target=label, session_id=42, train_size=0.8,
+                       n_jobs=1, verbose=False, html=False)
+            best_model = run_with_heartbeat(
+                lambda: exp2.create_model(best_id, verbose=False), best_id, emit
+            )
+            models_dir.mkdir(exist_ok=True)
+            filename = f"{run_id}__automl_{best_id}.joblib"
+            joblib.dump({"model": best_model, "model_id": best_id}, models_dir / filename)
+            emit("best_model_saved", model=best_id, filename=filename,
+                 elapsed_s=round(time.perf_counter() - t0, 2))
+        except Exception as exc:
+            emit("best_model_saved", model=best_id, error=str(exc),
+                 elapsed_s=round(time.perf_counter() - t0, 2))
 
     emit("done")
 

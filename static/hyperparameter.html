@@ -367,6 +367,7 @@
         best_params: entry.best_params,
         best_value: entry.best_value,
         metrics: entry.metrics,
+        filename: entry.filename || null,
         label: training.label,
         label_kind: labelKind,
         feature_columns: training.columns.filter(c => c !== training.label),
@@ -397,6 +398,7 @@
         best_params: {},
         metrics: null,
         error: null,
+        filename: training.best_model_filename || null,
         timestamp: new Date().toISOString(),
       };
       experimentLog.unshift(entry);
@@ -649,11 +651,22 @@
           experimentLog.push(entry);
           saveExperiments();
           renderExperimentsTable(experimentsHost, training, labelKind);
+        }, (savedModels) => {
+          savedModels.forEach(s => {
+            const entry = experimentLog.find(e => e.runId === runId && e.model === s.model);
+            if (entry) {
+              entry.filename = s.filename;
+              // keep the persisted selection's filename fresh if this run's model is the current pick
+              if (entry.experimentId === selectedExperimentId) selectExperimentForInference(entry, training, labelKind);
+            }
+          });
+          saveExperiments();
+          renderExperimentsTable(experimentsHost, training, labelKind);
         });
       });
     }
 
-    function runTune(training, labelKind, models, runBtn, resultsHost, runId, onExperimentRecorded) {
+    function runTune(training, labelKind, models, runBtn, resultsHost, runId, onExperimentRecorded, onModelsSaved) {
       runBtn.disabled = true;
       runBtn.textContent = 'Running…';
       resultsHost.innerHTML = '';
@@ -727,6 +740,10 @@
           const d = safeJSON(e.data);
           if (d) renderFullSetupNote(resultsHost, d, labelKind);
         });
+        es.addEventListener('fit_progress', (e) => {
+          const d = safeJSON(e.data);
+          if (d) renderFitProgressNote(resultsHost, d);
+        });
         es.addEventListener('full_refit_result', (e) => {
           const d = safeJSON(e.data);
           if (d) {
@@ -749,7 +766,10 @@
         });
         es.addEventListener('saved', (e) => {
           const d = safeJSON(e.data);
-          if (d) renderSaved(resultsHost, d.saved_models);
+          if (d) {
+            renderSaved(resultsHost, d.saved_models);
+            onModelsSaved(d.saved_models);
+          }
         });
         es.addEventListener('done', () => done());
         es.onerror = () => {
@@ -856,6 +876,29 @@
       layout.plot_bgcolor = '#0f1117';
       layout.font = { color: '#94a3b8', size: 10 };
       layout.margin = { t: 30, l: 40, r: 20, b: 30 };
+    }
+
+    // Real iteration counts for LightGBM/CatBoost, an elapsed-time heartbeat for
+    // everything else (no generic incremental-fit hook for most sklearn models).
+    function fitProgressText(d) {
+      const label = MODEL_LABELS[d.model] || d.model;
+      if (d.total) {
+        const pct = Math.round((d.iteration / d.total) * 100);
+        return `Fitting ${label}: iteration ${d.iteration}/${d.total} (${pct}%) — ${d.elapsed_s}s elapsed…`;
+      }
+      return `Fitting ${label}: still working — ${d.elapsed_s}s elapsed…`;
+    }
+
+    function renderFitProgressNote(host, d) {
+      let note = document.getElementById('fit-progress-note');
+      if (!note) {
+        note = document.createElement('div');
+        note.id = 'fit-progress-note';
+        note.className = 'note';
+        note.style.color = '#a5b4fc';
+        host.appendChild(note);
+      }
+      note.textContent = fitProgressText(d);
     }
 
     function renderFullSetupNote(host, d, labelKind) {

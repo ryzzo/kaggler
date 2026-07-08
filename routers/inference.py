@@ -1,15 +1,31 @@
-"""Batch inference against a saved model (/infer) and its download endpoints."""
+"""Batch inference against a saved model (/infer) and its download endpoints.
+
+Also /infer/pycaret/* — real inference for a model selected on the Hyperparameter
+Search page, via infer_worker.py in the isolated .venv-automl (same subprocess
+pattern as /train and /tune): it reconstructs PyCaret's preprocessing pipeline
+on the full clean training data, reuses a saved fitted model if one exists or
+fits fresh otherwise, and predicts on the uploaded test CSV through that
+pipeline.
+"""
+import asyncio
 import csv
 import io
 import json
+import tempfile
 import uuid
+from pathlib import Path
+from typing import Any
 
 import joblib
 import numpy as np
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from pydantic import BaseModel
 
-from common import MODELS_DIR, PREDICTIONS_DIR, PREPARED_DIR, _ID_COL_RE
+from common import (
+    AUTOML_VENV_PYTHON, INFER_WORKER_SCRIPT, MODELS_DIR, PREDICTIONS_DIR,
+    PREPARED_DIR, _ID_COL_RE, _sse,
+)
 
 router = APIRouter()
 
@@ -178,6 +194,134 @@ async def infer(
         "submission_url": f"/download/submission/{pred_id}",
         "submission_id_col": id_col or "id (row index)",
     })
+
+
+class PycaretInferRequest(BaseModel):
+    clean_file_id: str
+    feature_columns: list[str]
+    label: str
+    label_kind: str
+    model_id: str
+    best_params: dict[str, Any] = {}
+    model_filename: str = ""
+
+
+_pycaret_infer_jobs: dict[str, dict] = {}
+
+
+@router.post("/infer/pycaret/init")
+async def infer_pycaret_init(
+    file: UploadFile = File(...),
+    clean_file_id: str = Form(...),
+    feature_columns: str = Form(...),
+    label: str = Form(...),
+    label_kind: str = Form(...),
+    model_id: str = Form(...),
+    best_params: str = Form(default="{}"),
+    model_filename: str = Form(default=""),
+):
+    """Validate, stash the uploaded test CSV to disk, and return a job_id for the SSE stream."""
+    clean_path = PREPARED_DIR / f"{clean_file_id}__clean.csv"
+    if not clean_path.exists():
+        raise HTTPException(status_code=404, detail="Clean training file not found")
+    if label_kind not in ("categorical", "numeric"):
+        raise HTTPException(status_code=400, detail="label_kind must be 'categorical' or 'numeric'")
+    if not AUTOML_VENV_PYTHON.exists():
+        raise HTTPException(status_code=500, detail="AutoML environment not installed on server (.venv-automl missing)")
+
+    try:
+        feats: list[str] = json.loads(feature_columns)
+        params: dict = json.loads(best_params)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON in form fields")
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Empty file")
+
+    with tempfile.NamedTemporaryFile("wb", suffix=".csv", delete=False) as f:
+        f.write(content)
+        test_csv_path = f.name
+
+    model_path = ""
+    if model_filename:
+        candidate = MODELS_DIR / model_filename
+        if candidate.exists():
+            model_path = str(candidate)
+
+    job_id = str(uuid.uuid4())
+    _pycaret_infer_jobs[job_id] = {
+        "clean_csv_path": str(clean_path),
+        "test_csv_path": test_csv_path,
+        "feature_cols": feats,
+        "label": label,
+        "label_kind": label_kind,
+        "model_id": model_id,
+        "best_params": params,
+        "model_path": model_path,
+    }
+    return JSONResponse({"job_id": job_id})
+
+
+async def _pycaret_infer_generator(job: dict):
+    pred_id = str(uuid.uuid4())
+    args = {
+        **job,
+        "predictions_dir": str(PREDICTIONS_DIR),
+        "pred_id": pred_id,
+    }
+    test_csv_path = job["test_csv_path"]
+
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+        json.dump(args, f)
+        args_path = f.name
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            str(AUTOML_VENV_PYTHON), str(INFER_WORKER_SCRIPT), args_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        saw_error = False
+        while True:
+            line = await proc.stdout.readline()
+            if not line:
+                break
+            try:
+                msg = json.loads(line.decode("utf-8", errors="replace"))
+            except json.JSONDecodeError:
+                continue
+            event = msg.pop("event", "message")
+            if event == "error":
+                saw_error = True
+            if event == "done":
+                msg["download_url"] = f"/download/predictions/{pred_id}"
+                msg["submission_url"] = f"/download/submission/{pred_id}"
+            yield _sse(event, msg)
+
+        stderr_tail = (await proc.stderr.read()).decode("utf-8", errors="replace")
+        returncode = await proc.wait()
+        if returncode != 0 and not saw_error:
+            yield _sse("error", {"detail": stderr_tail[-2000:] or f"Worker exited with code {returncode}", "status": 500})
+    finally:
+        Path(args_path).unlink(missing_ok=True)
+        Path(test_csv_path).unlink(missing_ok=True)
+
+
+@router.get("/infer/pycaret/stream/{job_id}")
+async def infer_pycaret_stream(job_id: str):
+    """SSE endpoint consumed by EventSource — streams PyCaret inference progress as it completes."""
+    job = _pycaret_infer_jobs.pop(job_id, None)
+    if job is None:
+        async def _not_found():
+            yield _sse("error", {"detail": "Job not found or already consumed", "status": 404})
+        return StreamingResponse(_not_found(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+    return StreamingResponse(
+        _pycaret_infer_generator(job),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/download/predictions/{pred_id}")

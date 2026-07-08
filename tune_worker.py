@@ -24,6 +24,7 @@ routers/hyperparameter.py.
 """
 import json
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -102,6 +103,71 @@ def build_model(label_kind: str, model_id: str, params: dict):
     cls = MODEL_CLASS_MAP[label_kind][model_id]
     kwargs = {**FIXED_KWARGS[label_kind].get(model_id, {}), **params}
     return cls(**kwargs)
+
+
+def run_with_heartbeat(fn, model_id: str, emit_fn):
+    """Runs the zero-arg callable `fn` in a background thread, emitting periodic
+    elapsed-time 'fit_progress' heartbeats meanwhile, and returns fn()'s result.
+
+    Used whenever there's no way to hook real per-step progress — an opaque call
+    like pycaret's create_model(), or a model type fit_with_progress doesn't have
+    a native callback for. No completion percentage, but proof the process is
+    still alive during a long fit instead of a silent multi-minute wait."""
+    t0 = time.perf_counter()
+    result: dict = {}
+    exc_holder: list[Exception] = []
+
+    def _run():
+        try:
+            result["value"] = fn()
+        except Exception as exc:
+            exc_holder.append(exc)
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    while thread.is_alive():
+        thread.join(timeout=2.0)
+        if thread.is_alive():
+            emit_fn("fit_progress", model=model_id, elapsed_s=round(time.perf_counter() - t0, 2))
+    if exc_holder:
+        raise exc_holder[0]
+    return result["value"]
+
+
+def fit_with_progress(model, X, y, model_id: str, emit_fn) -> None:
+    """Fits `model` on (X, y), emitting periodic 'fit_progress' events via emit_fn.
+
+    LightGBM and CatBoost expose real per-iteration callbacks, so those report
+    actual completion fractions. Everything else (most sklearn ensembles) has no
+    generic incremental-fit hook, so it falls back to run_with_heartbeat."""
+    cls_name = type(model).__name__
+    t0 = time.perf_counter()
+
+    if cls_name in ("LGBMClassifier", "LGBMRegressor"):
+        def lgbm_callback(env):
+            total = env.end_iteration - env.begin_iteration
+            step = max(1, total // 20)
+            if env.iteration % step == 0 or env.iteration == env.end_iteration - 1:
+                emit_fn("fit_progress", model=model_id, iteration=env.iteration + 1, total=total,
+                        elapsed_s=round(time.perf_counter() - t0, 2))
+        model.fit(X, y, callbacks=[lgbm_callback])
+        return
+
+    if cls_name in ("CatBoostClassifier", "CatBoostRegressor"):
+        total = model.get_params().get("iterations") or 1000
+
+        class _Callback:
+            def after_iteration(self, info):
+                step = max(1, total // 20)
+                if info.iteration % step == 0 or info.iteration == total:
+                    emit_fn("fit_progress", model=model_id, iteration=info.iteration, total=total,
+                            elapsed_s=round(time.perf_counter() - t0, 2))
+                return True
+
+        model.fit(X, y, callbacks=[_Callback()])
+        return
+
+    run_with_heartbeat(lambda: model.fit(X, y), model_id, emit_fn)
 
 
 def suggest_params(trial, search_space: dict) -> dict:
@@ -278,7 +344,7 @@ def main() -> None:
         t0 = time.perf_counter()
         try:
             model = build_model(label_kind, mid, study.best_params)
-            model.fit(Xtr, ytr)
+            fit_with_progress(model, Xtr, ytr, mid, emit)
             fitted[mid] = model
             preds = model.predict(Xte)
             metrics = (_classification_metrics(yte, preds, model, Xte) if is_classification

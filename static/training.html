@@ -271,6 +271,7 @@
         es = new EventSource(`/train/stream/${jobId}`);
         let top3Models = [];
         let compareResults = {};
+        let bestModelFilename = null;
 
         es.addEventListener('error', (e) => {
           const d = safeJSON(e.data);
@@ -295,6 +296,24 @@
           const d = safeJSON(e.data);
           if (d) { top3Models = d.top3; markTop3(d.top3); }
         });
+        es.addEventListener('best_model_fit_start', (e) => {
+          const d = safeJSON(e.data);
+          if (d) renderBestModelNote(resultsHost, `Fitting ${MODEL_LABELS[d.model]||d.model} on the full dataset so it's ready for inference…`);
+        });
+        es.addEventListener('fit_progress', (e) => {
+          const d = safeJSON(e.data);
+          if (d) renderBestModelNote(resultsHost, fitProgressText(d));
+        });
+        es.addEventListener('best_model_saved', (e) => {
+          const d = safeJSON(e.data);
+          if (!d) return;
+          if (d.error) {
+            renderBestModelNote(resultsHost, `Could not save the best model: ${d.error}`, true);
+          } else {
+            bestModelFilename = d.filename;
+            renderBestModelNote(resultsHost, `${MODEL_LABELS[d.model]||d.model} fit and saved in ${d.elapsed_s}s — ready for inference.`);
+          }
+        });
         es.addEventListener('done', () => {
           sessionStorage.setItem('trainingData', JSON.stringify({
             clean_file_id: data.clean_file_id,
@@ -303,6 +322,7 @@
             label_kind: labelKind,
             top3: top3Models,
             compare_results: compareResults,
+            best_model_filename: bestModelFilename,
           }));
           renderNextBanner(resultsHost);
           done();
@@ -407,6 +427,30 @@
           nameCell.innerHTML += '<span class="top3-badge">top 3</span>';
         }
       });
+    }
+
+    // Shared wording for 'fit_progress' events across Data Training, Hyperparameter
+    // Search, and Inference: real iteration counts for LightGBM/CatBoost, an
+    // elapsed-time heartbeat for everything else (no generic incremental-fit hook).
+    function fitProgressText(d) {
+      const label = MODEL_LABELS[d.model] || d.model;
+      if (d.total) {
+        const pct = Math.round((d.iteration / d.total) * 100);
+        return `Fitting ${label}: iteration ${d.iteration}/${d.total} (${pct}%) — ${d.elapsed_s}s elapsed…`;
+      }
+      return `Fitting ${label}: still working — ${d.elapsed_s}s elapsed…`;
+    }
+
+    function renderBestModelNote(host, text, isError) {
+      let note = document.getElementById('best-model-note');
+      if (!note) {
+        note = document.createElement('div');
+        note.id = 'best-model-note';
+        note.className = 'note';
+        host.appendChild(note);
+      }
+      note.style.color = isError ? '#fca5a5' : '#6ee7b7';
+      note.textContent = text;
     }
 
     function renderNextBanner(host) {

@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from common import (
-    AUTOML_VENV_PYTHON, AUTOML_WORKER_SCRIPT, PREPARED_DIR,
+    AUTOML_VENV_PYTHON, AUTOML_WORKER_SCRIPT, MODELS_DIR, PREPARED_DIR,
     _ID_COL_RE, _sse,
 )
 
@@ -46,12 +46,15 @@ async def _train_generator(req: TrainRequest):
         yield _sse("error", {"detail": "No feature columns to train on", "status": 400})
         return
 
+    run_id = str(uuid.uuid4())
     args = {
         "csv_path": str(path),
         "feature_cols": feature_cols,
         "label": req.label,
         "label_kind": req.label_kind,
         "sample_frac": req.sample_frac,
+        "models_dir": str(MODELS_DIR),
+        "run_id": run_id,
     }
 
     yield _sse("start", {
