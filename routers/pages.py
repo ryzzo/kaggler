@@ -25,11 +25,6 @@ def training_page():
     return FileResponse("static/training.html")
 
 
-@router.get("/automl")
-def automl_page():
-    return FileResponse("static/automl.html")
-
-
 @router.get("/inference")
 def inference_page():
     return FileResponse("static/inference.html")
