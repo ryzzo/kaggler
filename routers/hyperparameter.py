@@ -1,14 +1,17 @@
 """Hyperparameter search endpoints (/tune/*) — shells out to tune_worker.py in .venv-automl.
 
-Tunes one or more of the models Data Training already identified as top-3: baseline
-+ randomized search on the 10% sample, then one final fit of the best hyperparameters
-on the full dataset.
+Runs an Optuna search per selected model using a search space fully specified by
+the caller (which parameters, their ranges/choices) — that's what lets the
+Hyperparameter Search page offer real control over what gets tuned. Search runs
+on the 10% sample; the best-found hyperparameters get one final fit on the full
+dataset.
 """
 import asyncio
 import json
 import tempfile
 import uuid
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -22,14 +25,19 @@ from common import (
 router = APIRouter()
 
 
+class ModelTuneSpec(BaseModel):
+    model_id: str
+    n_trials: int = 30
+    search_space: dict[str, dict[str, Any]] = {}
+
+
 class TuneRequest(BaseModel):
     clean_file_id: str
     columns: list[str]
     label: str
     label_kind: str  # "numeric" -> regression, "categorical" -> classification
-    model_ids: list[str]
+    models: list[ModelTuneSpec]
     sample_frac: float = 0.1
-    n_iter: int = 10
     fold: int = 5
 
 
@@ -41,10 +49,10 @@ async def _tune_generator(req: TuneRequest):
     if req.label not in req.columns:
         yield _sse("error", {"detail": "Label is not in columns", "status": 400})
         return
-    if req.label_kind != "categorical":
-        yield _sse("error", {"detail": "Hyperparameter search currently supports classification labels only", "status": 400})
+    if req.label_kind not in ("categorical", "numeric"):
+        yield _sse("error", {"detail": "label_kind must be 'categorical' or 'numeric'", "status": 400})
         return
-    if not req.model_ids:
+    if not req.models:
         yield _sse("error", {"detail": "No models selected to tune", "status": 400})
         return
     if not AUTOML_VENV_PYTHON.exists():
@@ -64,9 +72,8 @@ async def _tune_generator(req: TuneRequest):
         "label": req.label,
         "label_kind": req.label_kind,
         "sample_frac": req.sample_frac,
-        "model_ids": req.model_ids,
-        "n_iter": req.n_iter,
         "fold": req.fold,
+        "models": [m.model_dump() for m in req.models],
         "models_dir": str(MODELS_DIR),
         "run_id": run_id,
     }
@@ -76,7 +83,7 @@ async def _tune_generator(req: TuneRequest):
         "feature_columns": feature_cols,
         "excluded_id_columns": excluded_id_cols,
         "sample_frac": req.sample_frac,
-        "model_ids": req.model_ids,
+        "models": [m.model_id for m in req.models],
     })
 
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
@@ -122,9 +129,9 @@ async def tune_init(req: TuneRequest):
         raise HTTPException(status_code=404, detail="Clean file not found")
     if req.label not in req.columns:
         raise HTTPException(status_code=400, detail="Label is not in columns")
-    if req.label_kind != "categorical":
-        raise HTTPException(status_code=400, detail="Hyperparameter search currently supports classification labels only")
-    if not req.model_ids:
+    if req.label_kind not in ("categorical", "numeric"):
+        raise HTTPException(status_code=400, detail="label_kind must be 'categorical' or 'numeric'")
+    if not req.models:
         raise HTTPException(status_code=400, detail="No models selected to tune")
     job_id = str(uuid.uuid4())
     _job_store[job_id] = req

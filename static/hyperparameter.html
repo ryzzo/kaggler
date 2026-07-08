@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Hyperparameter Search</title>
+  <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -57,6 +58,11 @@
     }
     .btn:hover { background: #4338ca; }
     .btn:disabled { background: #2d3748; cursor: not-allowed; }
+    .btn-small {
+      background: #1e2430; color: #cbd5e1; border: none; border-radius: 6px;
+      padding: 4px 10px; font-size: .72rem; font-weight: 600; cursor: pointer;
+    }
+    .btn-small:hover { background: #2d3748; }
 
     .model-pick {
       display: flex; align-items: flex-start; gap: 12px; cursor: pointer;
@@ -73,19 +79,50 @@
     .model-table tr:last-child td { border-bottom: none; }
     .model-name { font-weight: 600; color: #e2e8f0; }
     .metric-error { color: #fca5a5; font-size: .74rem; white-space: normal; }
-    .best-row { background: #0d1f17; }
     .note { color: #64748b; font-size: .8rem; margin-bottom: 10px; }
     .table-wrap { overflow-x: auto; }
 
-    .model-section { margin-bottom: 28px; }
-    .model-section-title { font-size: .95rem; font-weight: 700; color: #e2e8f0; margin-bottom: 10px; }
+    .model-section { margin-bottom: 32px; background: #111827; border: 1px solid #1e2030; border-radius: 12px; padding: 18px 20px; }
+    .model-section-title { font-size: .95rem; font-weight: 700; color: #e2e8f0; margin-bottom: 4px; }
+    .model-section-meta { font-size: .76rem; color: #64748b; margin-bottom: 14px; }
+
+    .config-row {
+      display: grid; grid-template-columns: 20px 1fr; gap: 10px;
+      align-items: center; padding: 8px 0; border-bottom: 1px solid #1e2430;
+    }
+    .config-row:last-child { border-bottom: none; }
+    .config-row input[type="checkbox"] { accent-color: #6366f1; }
+    .param-name { font-size: .8rem; font-weight: 600; color: #e2e8f0; }
+    .param-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px; }
+    .param-controls label { font-size: .7rem; color: #64748b; display: flex; align-items: center; gap: 4px; }
+    .param-controls input[type="number"] {
+      width: 90px; background: #0f1117; color: #e2e8f0; border: 1px solid #2d3748;
+      border-radius: 6px; padding: 4px 8px; font-size: .78rem;
+    }
+    .param-controls input[type="checkbox"] { accent-color: #6366f1; }
+    .choice-chip {
+      font-size: .72rem; padding: 3px 9px; border-radius: 999px; cursor: pointer;
+      background: #1e2430; color: #94a3b8; border: 1px solid #2d3748; user-select: none;
+    }
+    .choice-chip.on { background: #1e1b4b; color: #a5b4fc; border-color: #4338ca; }
+
+    .n-trials-row { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: .8rem; color: #94a3b8; }
+    .n-trials-row input { width: 70px; background: #0f1117; color: #e2e8f0; border: 1px solid #2d3748; border-radius: 6px; padding: 4px 8px; }
+
+    .progress-line { font-size: .8rem; color: #a5b4fc; margin: 10px 0; }
+    .progress-bar-track { background: #1e2430; border-radius: 999px; overflow: hidden; height: 8px; margin: 6px 0 12px; }
+    .progress-bar-fill { background: #6366f1; height: 100%; border-radius: 999px; transition: width .3s; }
+
+    .plot-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+    @media (max-width: 800px) { .plot-grid { grid-template-columns: 1fr; } }
+    .plot-box { background: #0f1117; border: 1px solid #1e2030; border-radius: 10px; padding: 8px; }
 
     details.params { margin-top: 10px; }
     details.params summary { cursor: pointer; font-size: .78rem; color: #a5b4fc; }
     .params-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; margin-top: 8px; }
     @media (max-width: 700px) { .params-grid { grid-template-columns: 1fr; } }
-    .param-row { display: flex; justify-content: space-between; font-size: .74rem; color: #94a3b8; padding: 2px 0; border-bottom: 1px solid #1e2430; }
-    .param-row span:last-child { color: #cbd5e1; font-variant-numeric: tabular-nums; }
+    .param-row-static { display: flex; justify-content: space-between; font-size: .74rem; color: #94a3b8; padding: 2px 0; border-bottom: 1px solid #1e2430; }
+    .param-row-static span:last-child { color: #cbd5e1; font-variant-numeric: tabular-nums; }
 
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
   </style>
@@ -135,7 +172,7 @@
   <div class="top-bar">
     <div>
       <h1>Hyperparameter Search</h1>
-      <div class="subtitle">Tune the top models from Data Training: search on a 10% sample, then refit the best params on the full dataset.</div>
+      <div class="subtitle">Optuna search on a 10% sample, then one final fit of the best parameters on the full dataset.</div>
     </div>
   </div>
 
@@ -146,12 +183,157 @@
     function safeJSON(str) { try { return JSON.parse(str); } catch { return null; } }
 
     const MODEL_LABELS = {
-      lr: 'Logistic Regression', knn: 'KNN', nb: 'Naive Bayes', dt: 'Decision Tree',
-      svm: 'SVM (Linear)', ridge: 'Ridge Classifier', rf: 'Random Forest', qda: 'QDA',
-      ada: 'AdaBoost', gbc: 'Gradient Boosting', lda: 'LDA', et: 'Extra Trees',
+      lr: 'Linear/Logistic Regression', knn: 'KNN', nb: 'Naive Bayes', dt: 'Decision Tree',
+      svm: 'SVM', ridge: 'Ridge', rf: 'Random Forest', qda: 'QDA',
+      ada: 'AdaBoost', gbc: 'Gradient Boosting', gbr: 'Gradient Boosting', lda: 'LDA', et: 'Extra Trees',
       lightgbm: 'LightGBM', catboost: 'CatBoost', dummy: 'Dummy (baseline)',
+      lasso: 'Lasso', en: 'Elastic Net', huber: 'Huber',
     };
-    const METRIC_KEYS = [['Accuracy','Accuracy'],['AUC','AUC'],['Recall','Recall'],['Prec.','Prec.'],['F1','F1'],['Kappa','Kappa'],['MCC','MCC']];
+    function metricKeysFor(taskType) {
+      return taskType === 'categorical'
+        ? [['Accuracy','Accuracy'],['AUC','AUC'],['Recall','Recall'],['Prec.','Prec.'],['F1','F1'],['Kappa','Kappa'],['MCC','MCC']]
+        : [['MAE','MAE'],['MSE','MSE'],['RMSE','RMSE'],['R2','R2']];
+    }
+
+    // Default tunable-parameter schema per model — seeds the config form; the user
+    // can toggle params on/off and edit ranges/choices before running the search.
+    const DEFAULT_SEARCH_SPACE_CLS = {
+      rf: [
+        { name: 'n_estimators', type: 'int', low: 50, high: 500, step: 10, enabled: true },
+        { name: 'max_depth', type: 'int', low: 2, high: 30, step: 1, enabled: true },
+        { name: 'min_samples_split', type: 'int', low: 2, high: 20, step: 1, enabled: false },
+        { name: 'min_samples_leaf', type: 'int', low: 1, high: 20, step: 1, enabled: false },
+        { name: 'max_features', type: 'categorical', choices: ['sqrt', 'log2'], enabled: true },
+        { name: 'criterion', type: 'categorical', choices: ['gini', 'entropy'], enabled: false },
+      ],
+      et: [
+        { name: 'n_estimators', type: 'int', low: 50, high: 500, step: 10, enabled: true },
+        { name: 'max_depth', type: 'int', low: 2, high: 30, step: 1, enabled: true },
+        { name: 'min_samples_split', type: 'int', low: 2, high: 20, step: 1, enabled: false },
+        { name: 'max_features', type: 'categorical', choices: ['sqrt', 'log2'], enabled: true },
+      ],
+      gbc: [
+        { name: 'n_estimators', type: 'int', low: 50, high: 500, step: 10, enabled: true },
+        { name: 'learning_rate', type: 'float', low: 0.001, high: 0.3, log: true, enabled: true },
+        { name: 'max_depth', type: 'int', low: 2, high: 10, step: 1, enabled: true },
+        { name: 'subsample', type: 'float', low: 0.5, high: 1.0, enabled: false },
+      ],
+      dt: [
+        { name: 'max_depth', type: 'int', low: 2, high: 30, step: 1, enabled: true },
+        { name: 'min_samples_split', type: 'int', low: 2, high: 20, step: 1, enabled: true },
+        { name: 'criterion', type: 'categorical', choices: ['gini', 'entropy'], enabled: false },
+      ],
+      ada: [
+        { name: 'n_estimators', type: 'int', low: 20, high: 300, step: 10, enabled: true },
+        { name: 'learning_rate', type: 'float', low: 0.01, high: 2.0, log: true, enabled: true },
+      ],
+      lr: [
+        { name: 'C', type: 'float', low: 0.001, high: 100, log: true, enabled: true },
+      ],
+      ridge: [
+        { name: 'alpha', type: 'float', low: 0.001, high: 100, log: true, enabled: true },
+      ],
+      knn: [
+        { name: 'n_neighbors', type: 'int', low: 1, high: 50, step: 1, enabled: true },
+        { name: 'weights', type: 'categorical', choices: ['uniform', 'distance'], enabled: true },
+      ],
+      lightgbm: [
+        { name: 'n_estimators', type: 'int', low: 50, high: 500, step: 10, enabled: true },
+        { name: 'learning_rate', type: 'float', low: 0.001, high: 0.3, log: true, enabled: true },
+        { name: 'num_leaves', type: 'int', low: 10, high: 200, step: 1, enabled: true },
+        { name: 'max_depth', type: 'int', low: -1, high: 20, step: 1, enabled: false },
+        { name: 'min_child_samples', type: 'int', low: 5, high: 100, step: 1, enabled: false },
+        { name: 'subsample', type: 'float', low: 0.5, high: 1.0, enabled: false },
+        { name: 'colsample_bytree', type: 'float', low: 0.5, high: 1.0, enabled: false },
+      ],
+      catboost: [
+        { name: 'iterations', type: 'int', low: 50, high: 500, step: 10, enabled: true },
+        { name: 'learning_rate', type: 'float', low: 0.001, high: 0.3, log: true, enabled: true },
+        { name: 'depth', type: 'int', low: 2, high: 10, step: 1, enabled: true },
+        { name: 'l2_leaf_reg', type: 'float', low: 1, high: 10, enabled: false },
+      ],
+      lda: [
+        { name: 'solver', type: 'categorical', choices: ['svd', 'lsqr', 'eigen'], enabled: false },
+      ],
+      nb: [
+        { name: 'var_smoothing', type: 'float', low: 1e-12, high: 1e-6, log: true, enabled: false },
+      ],
+      qda: [
+        { name: 'reg_param', type: 'float', low: 0.0, high: 1.0, enabled: false },
+      ],
+      dummy: [],
+    };
+
+    const DEFAULT_SEARCH_SPACE_REG = {
+      rf: [
+        { name: 'n_estimators', type: 'int', low: 50, high: 500, step: 10, enabled: true },
+        { name: 'max_depth', type: 'int', low: 2, high: 30, step: 1, enabled: true },
+        { name: 'min_samples_split', type: 'int', low: 2, high: 20, step: 1, enabled: false },
+        { name: 'max_features', type: 'categorical', choices: ['sqrt', 'log2'], enabled: true },
+      ],
+      et: [
+        { name: 'n_estimators', type: 'int', low: 50, high: 500, step: 10, enabled: true },
+        { name: 'max_depth', type: 'int', low: 2, high: 30, step: 1, enabled: true },
+        { name: 'max_features', type: 'categorical', choices: ['sqrt', 'log2'], enabled: true },
+      ],
+      gbr: [
+        { name: 'n_estimators', type: 'int', low: 50, high: 500, step: 10, enabled: true },
+        { name: 'learning_rate', type: 'float', low: 0.001, high: 0.3, log: true, enabled: true },
+        { name: 'max_depth', type: 'int', low: 2, high: 10, step: 1, enabled: true },
+        { name: 'subsample', type: 'float', low: 0.5, high: 1.0, enabled: false },
+      ],
+      dt: [
+        { name: 'max_depth', type: 'int', low: 2, high: 30, step: 1, enabled: true },
+        { name: 'min_samples_split', type: 'int', low: 2, high: 20, step: 1, enabled: true },
+      ],
+      ada: [
+        { name: 'n_estimators', type: 'int', low: 20, high: 300, step: 10, enabled: true },
+        { name: 'learning_rate', type: 'float', low: 0.01, high: 2.0, log: true, enabled: true },
+      ],
+      lr: [],
+      ridge: [
+        { name: 'alpha', type: 'float', low: 0.001, high: 100, log: true, enabled: true },
+      ],
+      lasso: [
+        { name: 'alpha', type: 'float', low: 0.001, high: 100, log: true, enabled: true },
+      ],
+      en: [
+        { name: 'alpha', type: 'float', low: 0.001, high: 100, log: true, enabled: true },
+        { name: 'l1_ratio', type: 'float', low: 0.0, high: 1.0, enabled: true },
+      ],
+      huber: [
+        { name: 'epsilon', type: 'float', low: 1.0, high: 2.0, enabled: true },
+        { name: 'alpha', type: 'float', low: 0.0001, high: 1.0, log: true, enabled: false },
+      ],
+      knn: [
+        { name: 'n_neighbors', type: 'int', low: 1, high: 50, step: 1, enabled: true },
+        { name: 'weights', type: 'categorical', choices: ['uniform', 'distance'], enabled: true },
+      ],
+      svm: [
+        { name: 'C', type: 'float', low: 0.001, high: 100, log: true, enabled: true },
+        { name: 'epsilon', type: 'float', low: 0.001, high: 1.0, log: true, enabled: false },
+      ],
+      lightgbm: [
+        { name: 'n_estimators', type: 'int', low: 50, high: 500, step: 10, enabled: true },
+        { name: 'learning_rate', type: 'float', low: 0.001, high: 0.3, log: true, enabled: true },
+        { name: 'num_leaves', type: 'int', low: 10, high: 200, step: 1, enabled: true },
+        { name: 'max_depth', type: 'int', low: -1, high: 20, step: 1, enabled: false },
+        { name: 'min_child_samples', type: 'int', low: 5, high: 100, step: 1, enabled: false },
+        { name: 'subsample', type: 'float', low: 0.5, high: 1.0, enabled: false },
+        { name: 'colsample_bytree', type: 'float', low: 0.5, high: 1.0, enabled: false },
+      ],
+      catboost: [
+        { name: 'iterations', type: 'int', low: 50, high: 500, step: 10, enabled: true },
+        { name: 'learning_rate', type: 'float', low: 0.001, high: 0.3, log: true, enabled: true },
+        { name: 'depth', type: 'int', low: 2, high: 10, step: 1, enabled: true },
+        { name: 'l2_leaf_reg', type: 'float', low: 1, high: 10, enabled: false },
+      ],
+      dummy: [],
+    };
+
+    function searchSpaceFor(taskType) {
+      return taskType === 'categorical' ? DEFAULT_SEARCH_SPACE_CLS : DEFAULT_SEARCH_SPACE_REG;
+    }
 
     const content = document.getElementById('content');
     const trainingRaw = sessionStorage.getItem('trainingData');
@@ -172,11 +354,13 @@
     }
 
     function renderApp(training) {
+      const labelKind = training.label_kind || 'categorical';
+      const taskLabel = labelKind === 'categorical' ? 'classification' : 'regression';
       const card = document.createElement('div');
       card.className = 'summary-card';
       card.innerHTML = `
         <h3>From Data Training</h3>
-        <div class="summary-row"><span>Label</span><span>${escHtml(training.label)} (classification)</span></div>
+        <div class="summary-row"><span>Label</span><span>${escHtml(training.label)} (${taskLabel})</span></div>
         <div class="summary-row"><span>Top 3 models</span><span>${training.top3.map(m => MODEL_LABELS[m]||m).join(', ')}</span></div>`;
       content.appendChild(card);
 
@@ -190,7 +374,7 @@
       const selected = new Set();
 
       training.top3.forEach(mid => {
-        const metrics = (training.individual_results || {})[mid];
+        const metrics = (training.compare_results || {})[mid];
         const label = document.createElement('label');
         label.className = 'model-pick';
         const cb = document.createElement('input');
@@ -198,12 +382,15 @@
         cb.value = mid;
         cb.addEventListener('change', () => {
           if (cb.checked) selected.add(mid); else selected.delete(mid);
+          rebuildConfigSections([...selected]);
           runBtn.disabled = selected.size === 0;
         });
         const txt = document.createElement('div');
         const metaText = metrics && !metrics.error
-          ? `Current (full dataset): Accuracy ${metrics.Accuracy ?? '—'}, F1 ${metrics.F1 ?? '—'}`
-          : 'No baseline metrics available';
+          ? (labelKind === 'categorical'
+              ? `Sample comparison: Accuracy ${metrics.Accuracy ?? '—'}, F1 ${metrics.F1 ?? '—'}`
+              : `Sample comparison: R2 ${metrics.R2 ?? '—'}, MAE ${metrics.MAE ?? '—'}`)
+          : 'No comparison metrics available';
         txt.innerHTML = `<div class="model-pick-name">${MODEL_LABELS[mid]||mid}</div>
           <div class="model-pick-meta">${escHtml(metaText)}</div>`;
         label.appendChild(cb);
@@ -212,9 +399,144 @@
       });
       content.appendChild(pickCard);
 
+      const configTitle = document.createElement('div');
+      configTitle.className = 'section-title';
+      configTitle.textContent = 'Configure search space';
+      content.appendChild(configTitle);
+
+      const configHost = document.createElement('div');
+      content.appendChild(configHost);
+
+      // model_id -> array of param config objects (mutable copies of the default search space)
+      const modelConfigs = {};
+      const defaultSpace = searchSpaceFor(labelKind);
+
+      function rebuildConfigSections(modelIds) {
+        configHost.innerHTML = '';
+        modelIds.forEach(mid => {
+          if (!modelConfigs[mid]) {
+            modelConfigs[mid] = {
+              n_trials: 30,
+              params: (defaultSpace[mid] || []).map(p => ({ ...p })),
+            };
+          }
+          configHost.appendChild(buildModelConfigCard(mid, modelConfigs[mid]));
+        });
+      }
+
+      function buildModelConfigCard(mid, cfg) {
+        const card = document.createElement('div');
+        card.className = 'model-section';
+        card.innerHTML = `<div class="model-section-title">${MODEL_LABELS[mid]||mid}</div>`;
+
+        if (!cfg.params.length) {
+          const note = document.createElement('div');
+          note.className = 'note';
+          note.textContent = 'No tunable hyperparameters for this model.';
+          card.appendChild(note);
+          return card;
+        }
+
+        cfg.params.forEach(p => {
+          const row = document.createElement('div');
+          row.className = 'config-row';
+          const cb = document.createElement('input');
+          cb.type = 'checkbox';
+          cb.checked = p.enabled;
+          cb.addEventListener('change', () => { p.enabled = cb.checked; });
+          row.appendChild(cb);
+
+          const body = document.createElement('div');
+          const nameEl = document.createElement('div');
+          nameEl.className = 'param-name';
+          nameEl.textContent = p.name;
+          body.appendChild(nameEl);
+
+          const controls = document.createElement('div');
+          controls.className = 'param-controls';
+
+          if (p.type === 'int' || p.type === 'float') {
+            const lowInput = document.createElement('input');
+            lowInput.type = 'number';
+            lowInput.value = p.low;
+            lowInput.step = p.type === 'int' ? '1' : 'any';
+            lowInput.addEventListener('input', () => { p.low = Number(lowInput.value); });
+            const highInput = document.createElement('input');
+            highInput.type = 'number';
+            highInput.value = p.high;
+            highInput.step = p.type === 'int' ? '1' : 'any';
+            highInput.addEventListener('input', () => { p.high = Number(highInput.value); });
+
+            const lowLabel = document.createElement('label');
+            lowLabel.textContent = 'low';
+            lowLabel.appendChild(lowInput);
+            const highLabel = document.createElement('label');
+            highLabel.textContent = 'high';
+            highLabel.appendChild(highInput);
+            controls.appendChild(lowLabel);
+            controls.appendChild(highLabel);
+
+            if (p.type === 'int') {
+              const stepInput = document.createElement('input');
+              stepInput.type = 'number';
+              stepInput.value = p.step || 1;
+              stepInput.min = '1';
+              stepInput.addEventListener('input', () => { p.step = Number(stepInput.value) || 1; });
+              const stepLabel = document.createElement('label');
+              stepLabel.textContent = 'step';
+              stepLabel.appendChild(stepInput);
+              controls.appendChild(stepLabel);
+            }
+
+            const logLabel = document.createElement('label');
+            const logCb = document.createElement('input');
+            logCb.type = 'checkbox';
+            logCb.checked = !!p.log;
+            logCb.addEventListener('change', () => { p.log = logCb.checked; });
+            logLabel.appendChild(logCb);
+            logLabel.appendChild(document.createTextNode('log scale'));
+            controls.appendChild(logLabel);
+          } else if (p.type === 'categorical') {
+            if (!p._allChoices) p._allChoices = [...p.choices];
+            p._allChoices.forEach(choice => {
+              const chip = document.createElement('span');
+              chip.className = 'choice-chip' + (p.choices.includes(choice) ? ' on' : '');
+              chip.textContent = choice === null ? 'None' : String(choice);
+              chip.addEventListener('click', () => {
+                const idx = p.choices.indexOf(choice);
+                if (idx >= 0) {
+                  if (p.choices.length > 1) p.choices.splice(idx, 1);
+                } else {
+                  p.choices.push(choice);
+                }
+                chip.classList.toggle('on', p.choices.includes(choice));
+              });
+              controls.appendChild(chip);
+            });
+          }
+
+          body.appendChild(controls);
+          row.appendChild(body);
+          card.appendChild(row);
+        });
+
+        const trialsRow = document.createElement('div');
+        trialsRow.className = 'n-trials-row';
+        const trialsInput = document.createElement('input');
+        trialsInput.type = 'number';
+        trialsInput.min = '2';
+        trialsInput.value = cfg.n_trials;
+        trialsInput.addEventListener('input', () => { cfg.n_trials = Math.max(2, Number(trialsInput.value) || 30); });
+        trialsRow.appendChild(document.createTextNode('Trials:'));
+        trialsRow.appendChild(trialsInput);
+        card.appendChild(trialsRow);
+
+        return card;
+      }
+
       const runTitle = document.createElement('div');
       runTitle.className = 'section-title';
-      runTitle.textContent = 'Run search';
+      runTitle.textContent = 'Train';
       content.appendChild(runTitle);
 
       const runBtn = document.createElement('button');
@@ -226,10 +548,26 @@
       const resultsHost = document.createElement('div');
       content.appendChild(resultsHost);
 
-      runBtn.addEventListener('click', () => runTune(training, [...selected], runBtn, resultsHost));
+      runBtn.addEventListener('click', () => {
+        const payload = [...selected].map(mid => {
+          const cfg = modelConfigs[mid];
+          const search_space = {};
+          cfg.params.forEach(p => {
+            if (!p.enabled) return;
+            if (p.type === 'categorical') {
+              search_space[p.name] = { type: 'categorical', choices: p.choices };
+            } else {
+              search_space[p.name] = { type: p.type, low: p.low, high: p.high, log: !!p.log };
+              if (p.type === 'int') search_space[p.name].step = p.step || 1;
+            }
+          });
+          return { model_id: mid, n_trials: cfg.n_trials, search_space };
+        });
+        runTune(training, labelKind, payload, runBtn, resultsHost);
+      });
     }
 
-    function runTune(training, modelIds, runBtn, resultsHost) {
+    function runTune(training, labelKind, models, runBtn, resultsHost) {
       runBtn.disabled = true;
       runBtn.textContent = 'Running…';
       resultsHost.innerHTML = '';
@@ -255,10 +593,9 @@
               clean_file_id: training.clean_file_id,
               columns: training.columns,
               label: training.label,
-              label_kind: 'categorical',
-              model_ids: modelIds,
+              label_kind: labelKind,
+              models,
               sample_frac: 0.1,
-              n_iter: 10,
               fold: 5,
             }),
           });
@@ -281,23 +618,27 @@
         });
         es.addEventListener('sample_ready', (e) => {
           const d = safeJSON(e.data);
-          if (d) renderSampleNote(resultsHost, d);
+          if (d) renderSampleNote(resultsHost, d, labelKind);
         });
-        es.addEventListener('baseline_result', (e) => {
+        es.addEventListener('search_start', (e) => {
           const d = safeJSON(e.data);
-          if (d) renderModelSection(resultsHost, d.model, d);
+          if (d) renderSearchStart(resultsHost, d);
         });
-        es.addEventListener('tune_result', (e) => {
+        es.addEventListener('trial_result', (e) => {
           const d = safeJSON(e.data);
-          if (d) renderTuneResult(resultsHost, d.model, d);
+          if (d) renderTrialProgress(d, labelKind);
+        });
+        es.addEventListener('search_done', (e) => {
+          const d = safeJSON(e.data);
+          if (d) renderSearchDone(d, labelKind);
         });
         es.addEventListener('full_setup', (e) => {
           const d = safeJSON(e.data);
-          if (d) renderFullSetupNote(resultsHost, d);
+          if (d) renderFullSetupNote(resultsHost, d, labelKind);
         });
         es.addEventListener('full_refit_result', (e) => {
           const d = safeJSON(e.data);
-          if (d) renderFullRefitResult(resultsHost, d.model, d);
+          if (d) renderFullRefitResult(d.model, d, labelKind);
         });
         es.addEventListener('saved', (e) => {
           const d = safeJSON(e.data);
@@ -312,67 +653,106 @@
       })();
     }
 
-    function renderSampleNote(host, d) {
+    function renderSampleNote(host, d, labelKind) {
       const note = document.createElement('div');
       note.className = 'note';
-      note.textContent = `Searching on ${d.n_sample.toLocaleString()} rows (${Math.round(d.sample_frac*100)}% stratified sample of ${d.n_total.toLocaleString()} total rows)…`;
+      const sampling = labelKind === 'categorical' ? 'stratified sample' : 'random sample';
+      note.textContent = `Searching on ${d.n_sample.toLocaleString()} rows (${Math.round(d.sample_frac*100)}% ${sampling} of ${d.n_total.toLocaleString()} total rows)…`;
       host.appendChild(note);
     }
 
-    function modelSectionHost(host, mid) {
-      let sec = document.getElementById(`tune-sec-${mid}`);
+    function modelResultSection(host, mid) {
+      let sec = document.getElementById(`result-sec-${mid}`);
       if (!sec) {
         sec = document.createElement('div');
-        sec.id = `tune-sec-${mid}`;
+        sec.id = `result-sec-${mid}`;
         sec.className = 'model-section';
         sec.innerHTML = `<div class="model-section-title">${MODEL_LABELS[mid]||mid}</div>`;
-        const wrap = document.createElement('div');
-        wrap.className = 'table-wrap';
-        const table = document.createElement('table');
-        table.className = 'model-table';
-        table.innerHTML = `<thead><tr><th>Stage</th><th>Time</th>${METRIC_KEYS.map(([,l])=>`<th>${l}</th>`).join('')}</tr></thead>`;
-        table.appendChild(document.createElement('tbody'));
-        wrap.appendChild(table);
-        sec.appendChild(wrap);
         host.appendChild(sec);
       }
       return sec;
     }
 
-    function addStageRow(host, mid, stageLabel, d) {
-      const sec = modelSectionHost(host, mid);
-      const tbody = sec.querySelector('tbody');
-      const tr = document.createElement('tr');
+    function renderSearchStart(host, d) {
+      const sec = modelResultSection(host, d.model);
+      const line = document.createElement('div');
+      line.id = `progress-${d.model}`;
+      line.className = 'progress-line';
+      line.textContent = `Trial 0/${d.n_trials}…`;
+      sec.appendChild(line);
+      const track = document.createElement('div');
+      track.className = 'progress-bar-track';
+      track.id = `progress-track-${d.model}`;
+      track.innerHTML = `<div class="progress-bar-fill" id="progress-fill-${d.model}" style="width:0%"></div>`;
+      sec.appendChild(track);
+    }
+
+    function renderTrialProgress(d, labelKind) {
+      const scoreLabel = labelKind === 'categorical' ? 'accuracy' : 'R2';
+      const line = document.getElementById(`progress-${d.model}`);
+      if (line) {
+        line.textContent = `Trial ${d.trial + 1}/${d.n_trials} — best ${scoreLabel} so far: ${d.best_value}`;
+      }
+      const fill = document.getElementById(`progress-fill-${d.model}`);
+      if (fill) fill.style.width = `${Math.round(((d.trial + 1) / d.n_trials) * 100)}%`;
+    }
+
+    function renderSearchDone(d, labelKind) {
+      const scoreLabel = labelKind === 'categorical' ? 'accuracy' : 'R2';
+      const sec = document.getElementById(`result-sec-${d.model}`);
+      if (!sec) return;
       if (d.error) {
-        tr.innerHTML = `<td class="model-name">${escHtml(stageLabel)}</td><td>${d.elapsed_s}s</td>
-          <td colspan="${METRIC_KEYS.length}" class="metric-error">${escHtml(d.error)}</td>`;
-      } else {
-        tr.innerHTML = `<td class="model-name">${escHtml(stageLabel)}</td><td>${d.elapsed_s}s</td>
-          ${METRIC_KEYS.map(([k]) => `<td>${d.metrics[k] ?? '—'}</td>`).join('')}`;
+        const err = document.createElement('div');
+        err.className = 'metric-error';
+        err.textContent = d.error;
+        sec.appendChild(err);
+        return;
       }
-      tbody.appendChild(tr);
-      return tr;
-    }
+      const summary = document.createElement('div');
+      summary.className = 'note';
+      summary.textContent = `Best sample ${scoreLabel}: ${d.best_value} (search took ${d.elapsed_s}s)`;
+      sec.appendChild(summary);
 
-    function renderModelSection(host, mid, d) {
-      addStageRow(host, mid, 'Baseline (10% sample)', d);
-    }
+      const details = document.createElement('details');
+      details.className = 'params';
+      const rows = Object.entries(d.best_params)
+        .map(([k, v]) => `<div class="param-row-static"><span>${escHtml(k)}</span><span>${escHtml(String(v))}</span></div>`)
+        .join('');
+      details.innerHTML = `<summary>Best hyperparameters found</summary><div class="params-grid">${rows}</div>`;
+      sec.appendChild(details);
 
-    function renderTuneResult(host, mid, d) {
-      addStageRow(host, mid, 'Tuned (10% sample)', d);
-      if (!d.error && d.best_params) {
-        const sec = document.getElementById(`tune-sec-${mid}`);
-        const details = document.createElement('details');
-        details.className = 'params';
-        const rows = Object.entries(d.best_params)
-          .map(([k, v]) => `<div class="param-row"><span>${escHtml(k)}</span><span>${escHtml(String(v))}</span></div>`)
-          .join('');
-        details.innerHTML = `<summary>Best hyperparameters found</summary><div class="params-grid">${rows}</div>`;
-        sec.appendChild(details);
+      if (window.Plotly && (d.history_json || d.slice_json)) {
+        const grid = document.createElement('div');
+        grid.className = 'plot-grid';
+        if (d.history_json) {
+          const box = document.createElement('div');
+          box.className = 'plot-box';
+          grid.appendChild(box);
+          const fig = JSON.parse(d.history_json);
+          applyDarkTheme(fig.layout);
+          Plotly.newPlot(box, fig.data, fig.layout, { responsive: true, displayModeBar: false });
+        }
+        if (d.slice_json) {
+          const box = document.createElement('div');
+          box.className = 'plot-box';
+          grid.appendChild(box);
+          const fig = JSON.parse(d.slice_json);
+          applyDarkTheme(fig.layout);
+          Plotly.newPlot(box, fig.data, fig.layout, { responsive: true, displayModeBar: false });
+        }
+        sec.appendChild(grid);
       }
     }
 
-    function renderFullSetupNote(host, d) {
+    function applyDarkTheme(layout) {
+      layout.paper_bgcolor = '#0f1117';
+      layout.plot_bgcolor = '#0f1117';
+      layout.font = { color: '#94a3b8', size: 10 };
+      layout.margin = { t: 30, l: 40, r: 20, b: 30 };
+    }
+
+    function renderFullSetupNote(host, d, labelKind) {
+      const keys = metricKeysFor(labelKind);
       const title = document.createElement('div');
       title.className = 'section-title';
       title.textContent = 'Final fit — best hyperparameters on full dataset';
@@ -381,10 +761,32 @@
       note.className = 'note';
       note.textContent = `Trained on ${d.n_train.toLocaleString()} rows, evaluated on ${d.n_test.toLocaleString()} held-out rows.`;
       host.appendChild(note);
+      const wrap = document.createElement('div');
+      wrap.className = 'table-wrap';
+      wrap.id = 'refit-wrap';
+      wrap.dataset.labelKind = labelKind;
+      const table = document.createElement('table');
+      table.className = 'model-table';
+      table.innerHTML = `<thead><tr><th>Model</th><th>Time</th>${keys.map(([,l])=>`<th>${l}</th>`).join('')}</tr></thead>`;
+      table.appendChild(document.createElement('tbody'));
+      wrap.appendChild(table);
+      host.appendChild(wrap);
     }
 
-    function renderFullRefitResult(host, mid, d) {
-      addStageRow(host, mid, 'Tuned (full dataset, holdout)', d);
+    function renderFullRefitResult(mid, d, labelKind) {
+      const wrap = document.getElementById('refit-wrap');
+      if (!wrap) return;
+      const keys = metricKeysFor(labelKind);
+      const tbody = wrap.querySelector('tbody');
+      const tr = document.createElement('tr');
+      if (d.error) {
+        tr.innerHTML = `<td class="model-name">${MODEL_LABELS[mid]||mid}</td><td>${d.elapsed_s}s</td>
+          <td colspan="${keys.length}" class="metric-error">${escHtml(d.error)}</td>`;
+      } else {
+        tr.innerHTML = `<td class="model-name">${MODEL_LABELS[mid]||mid}</td><td>${d.elapsed_s}s</td>
+          ${keys.map(([k]) => `<td>${d.metrics[k] ?? '—'}</td>`).join('')}`;
+      }
+      tbody.appendChild(tr);
     }
 
     function renderSaved(host, savedModels) {
@@ -396,9 +798,8 @@
       const card = document.createElement('div');
       card.className = 'summary-card';
       card.innerHTML = `<div class="note" style="margin-bottom:12px">
-        PyCaret-native pickles saved to <code>models/</code> on the server. These use a different
-        environment (PyCaret's own Python/scikit-learn versions) than the Inference page, so they
-        aren't loadable there yet — kept here for the record.
+        Saved to <code>models/</code> on the server using this environment's own scikit-learn/LightGBM/CatBoost
+        versions — not wired into the Inference page yet, kept here for the record.
       </div>`;
       savedModels.forEach(s => {
         card.innerHTML += `<div class="summary-row">

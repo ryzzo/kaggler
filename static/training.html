@@ -131,7 +131,7 @@
   <div class="top-bar">
     <div>
       <h1>Data Training</h1>
-      <div class="subtitle">AutoML (PyCaret): compare models on a 10% sample, then retrain the top 3 on the full dataset.</div>
+      <div class="subtitle">AutoML (PyCaret) model scouting: compare candidate models on a 10% sample to see which are worth tuning.</div>
     </div>
   </div>
 
@@ -142,12 +142,19 @@
     function safeJSON(str) { try { return JSON.parse(str); } catch { return null; } }
 
     const MODEL_LABELS = {
-      lr: 'Logistic Regression', knn: 'KNN', nb: 'Naive Bayes', dt: 'Decision Tree',
-      svm: 'SVM (Linear)', ridge: 'Ridge Classifier', rf: 'Random Forest', qda: 'QDA',
-      ada: 'AdaBoost', gbc: 'Gradient Boosting', lda: 'LDA', et: 'Extra Trees',
+      lr: 'Linear/Logistic Regression', knn: 'KNN', nb: 'Naive Bayes', dt: 'Decision Tree',
+      svm: 'SVM', ridge: 'Ridge', rf: 'Random Forest', qda: 'QDA',
+      ada: 'AdaBoost', gbc: 'Gradient Boosting', gbr: 'Gradient Boosting', lda: 'LDA', et: 'Extra Trees',
       lightgbm: 'LightGBM', catboost: 'CatBoost', dummy: 'Dummy (baseline)',
+      lasso: 'Lasso', en: 'Elastic Net', lar: 'Least Angle Regression', llar: 'Lasso Least Angle Regression',
+      omp: 'Orthogonal Matching Pursuit', br: 'Bayesian Ridge', par: 'Passive Aggressive', huber: 'Huber',
     };
-    const METRIC_KEYS = [['Accuracy','Accuracy'],['AUC','AUC'],['Recall','Recall'],['Prec.','Prec.'],['F1','F1'],['Kappa','Kappa'],['MCC','MCC']];
+    function metricKeysFor(taskType) {
+      return taskType === 'categorical'
+        ? [['Accuracy','Accuracy'],['AUC','AUC'],['Recall','Recall'],['Prec.','Prec.'],['F1','F1'],['Kappa','Kappa'],['MCC','MCC']]
+        : [['MAE','MAE'],['MSE','MSE'],['RMSE','RMSE'],['R2','R2'],['RMSLE','RMSLE'],['MAPE','MAPE']];
+    }
+    function rankKeyFor(taskType) { return taskType === 'categorical' ? 'Accuracy' : 'R2'; }
 
     const content = document.getElementById('content');
     const raw = sessionStorage.getItem('preparedData');
@@ -160,49 +167,46 @@
       const data = JSON.parse(raw);
       const label = data.columns[data.columns.length - 1];
       const isCategorical = Object.prototype.hasOwnProperty.call(data.encoding_info || {}, label);
+      const labelKind = isCategorical ? 'categorical' : 'numeric';
 
       if (!data.clean_file_id) {
         content.innerHTML = `<div id="error-msg">
           No clean (imputed) dataset available from Data Preparation. Training needs unencoded features.
           <br><a href="/preparation" style="color:#a5b4fc">&larr; Go re-run Data Preparation</a>
         </div>`;
-      } else if (!isCategorical) {
-        content.innerHTML = `<div id="error-msg">
-          Label "${escHtml(label)}" is numeric. Training currently supports classification labels only.
-        </div>`;
       } else {
-        renderApp(data, label);
+        renderApp(data, label, labelKind);
       }
     }
 
-    function renderApp(data, label) {
+    function renderApp(data, label, labelKind) {
+      const taskLabel = labelKind === 'categorical' ? 'classification' : 'regression';
       const card = document.createElement('div');
       card.className = 'summary-card';
       card.innerHTML = `
         <h3>Dataset</h3>
         <div class="summary-row"><span>Rows</span><span>${data.row_count}</span></div>
-        <div class="summary-row"><span>Label</span><span>${escHtml(label)} (classification)</span></div>
-        <div class="summary-row"><span>Sample for comparison</span><span>10% (stratified)</span></div>
-        <div class="summary-row"><span>Final training</span><span>100% of dataset</span></div>`;
+        <div class="summary-row"><span>Label</span><span>${escHtml(label)} (${taskLabel})</span></div>
+        <div class="summary-row"><span>Sample for comparison</span><span>10% ${labelKind === 'categorical' ? '(stratified)' : ''}</span></div>`;
       content.appendChild(card);
 
       const title = document.createElement('div');
       title.className = 'section-title';
-      title.textContent = 'Train models';
+      title.textContent = 'Compare models';
       content.appendChild(title);
 
       const runBtn = document.createElement('button');
       runBtn.className = 'btn';
-      runBtn.textContent = 'Run training';
+      runBtn.textContent = 'Run comparison';
       content.appendChild(runBtn);
 
       const resultsHost = document.createElement('div');
       content.appendChild(resultsHost);
 
-      runBtn.addEventListener('click', () => runTraining(data, label, runBtn, resultsHost));
+      runBtn.addEventListener('click', () => runTraining(data, label, labelKind, runBtn, resultsHost));
     }
 
-    function runTraining(data, label, runBtn, resultsHost) {
+    function runTraining(data, label, labelKind, runBtn, resultsHost) {
       runBtn.disabled = true;
       runBtn.textContent = 'Running…';
       resultsHost.innerHTML = '';
@@ -211,7 +215,7 @@
       function done() {
         if (es) { es.close(); es = null; }
         runBtn.disabled = false;
-        runBtn.textContent = 'Run training';
+        runBtn.textContent = 'Run comparison';
       }
       function showError(msg) {
         done();
@@ -228,7 +232,7 @@
               clean_file_id: data.clean_file_id,
               columns: data.columns,
               label,
-              label_kind: 'categorical',
+              label_kind: labelKind,
               sample_frac: 0.1,
             }),
           });
@@ -244,103 +248,86 @@
         }
 
         es = new EventSource(`/train/stream/${jobId}`);
-        let compareModels = [];
-        let sampleInfo = null;
         let top3Models = [];
-        let individualResults = {};
-        let savedModelsList = [];
+        let compareResults = {};
 
         es.addEventListener('error', (e) => {
           const d = safeJSON(e.data);
           showError(d ? d.detail : 'Stream error');
         });
         es.addEventListener('sample_ready', (e) => {
-          sampleInfo = safeJSON(e.data);
-          renderSampleNote(resultsHost, sampleInfo);
+          const d = safeJSON(e.data);
+          if (d) renderSampleNote(resultsHost, d, labelKind);
         });
         es.addEventListener('compare_start', (e) => {
           const d = safeJSON(e.data);
-          if (d) { compareModels = d.models; renderCompareSkeleton(resultsHost, d.models); }
+          if (d) renderCompareSkeleton(resultsHost, d.models, labelKind);
         });
         es.addEventListener('compare_result', (e) => {
           const d = safeJSON(e.data);
-          if (d) setCompareResult(d);
+          if (d) {
+            compareResults[d.model] = d.error ? { error: d.error } : d.metrics;
+            setCompareResult(d, labelKind);
+          }
         });
         es.addEventListener('leaderboard_done', (e) => {
           const d = safeJSON(e.data);
           if (d) { top3Models = d.top3; markTop3(d.top3); }
-        });
-        es.addEventListener('full_setup', (e) => {
-          const d = safeJSON(e.data);
-          if (d) renderFullSetupNote(resultsHost, d);
-        });
-        es.addEventListener('individual_result', (e) => {
-          const d = safeJSON(e.data);
-          if (d) {
-            individualResults[d.model] = d.error ? { error: d.error } : d.metrics;
-            renderIndividualResult(resultsHost, d);
-          }
-        });
-        es.addEventListener('ensemble_result', (e) => {
-          const d = safeJSON(e.data);
-          if (d) renderEnsembleResult(resultsHost, d);
-        });
-        es.addEventListener('saved', (e) => {
-          const d = safeJSON(e.data);
-          if (d) { savedModelsList = d.saved_models; renderSaved(resultsHost, d.saved_models); }
         });
         es.addEventListener('done', () => {
           sessionStorage.setItem('trainingData', JSON.stringify({
             clean_file_id: data.clean_file_id,
             columns: data.columns,
             label,
-            label_kind: 'categorical',
+            label_kind: labelKind,
             top3: top3Models,
-            individual_results: individualResults,
-            saved_models: savedModelsList,
+            compare_results: compareResults,
           }));
           renderNextBanner(resultsHost);
           done();
         });
         es.onerror = () => {
           if (es && es.readyState === EventSource.CLOSED) {
-            showError('Connection lost during training.');
+            showError('Connection lost during comparison.');
           }
         };
       })();
     }
 
-    function renderSampleNote(host, d) {
+    function renderSampleNote(host, d, labelKind) {
       const note = document.createElement('div');
       note.className = 'note';
-      note.textContent = `Comparing models on ${d.n_sample.toLocaleString()} rows (${Math.round(d.sample_frac*100)}% stratified sample of ${d.n_total.toLocaleString()} total rows)…`;
+      const sampling = labelKind === 'categorical' ? 'stratified sample' : 'random sample';
+      note.textContent = `Comparing models on ${d.n_sample.toLocaleString()} rows (${Math.round(d.sample_frac*100)}% ${sampling} of ${d.n_total.toLocaleString()} total rows)…`;
       host.appendChild(note);
     }
 
-    function metricCells(prefix) {
-      return METRIC_KEYS.map(([k]) => `<td id="${prefix}-${cssKey(k)}"><span style="color:#334155">waiting…</span></td>`).join('');
+    function metricCells(prefix, taskType) {
+      return metricKeysFor(taskType).map(([k]) => `<td id="${prefix}-${cssKey(k)}"><span style="color:#334155">waiting…</span></td>`).join('');
     }
     function cssKey(k) { return k.replace('.', ''); }
 
-    function renderCompareSkeleton(host, models) {
+    function renderCompareSkeleton(host, models, labelKind) {
       const title = document.createElement('div');
       title.className = 'section-title';
       title.textContent = 'Model comparison — 10% sample';
       host.appendChild(title);
 
+      const keys = metricKeysFor(labelKind);
       const wrap = document.createElement('div');
       wrap.className = 'table-wrap';
       const table = document.createElement('table');
       table.className = 'model-table';
       table.id = 'compare-table';
-      table.innerHTML = `<thead><tr><th>Model</th><th>Time</th>${METRIC_KEYS.map(([,l])=>`<th>${l}</th>`).join('')}</tr></thead>`;
+      table.dataset.labelKind = labelKind;
+      table.innerHTML = `<thead><tr><th>Model</th><th>Time</th>${keys.map(([,l])=>`<th>${l}</th>`).join('')}</tr></thead>`;
       const tbody = document.createElement('tbody');
       models.forEach(name => {
         const tr = document.createElement('tr');
         tr.id = `crow-${name}`;
         tr.innerHTML = `<td class="model-name" id="cname-${name}">${MODEL_LABELS[name]||name}</td>
           <td id="ctime-${name}" style="color:#64748b">—</td>
-          ${metricCells(`ccell-${name}`)}`;
+          ${metricCells(`ccell-${name}`, labelKind)}`;
         tbody.appendChild(tr);
       });
       table.appendChild(tbody);
@@ -348,25 +335,27 @@
       host.appendChild(wrap);
     }
 
-    function setCompareResult(d) {
+    function setCompareResult(d, labelKind) {
+      const keys = metricKeysFor(labelKind);
+      const rankKey = rankKeyFor(labelKind);
       const timeCell = document.getElementById(`ctime-${d.model}`);
       if (timeCell) timeCell.textContent = `${d.elapsed_s}s`;
       if (d.error) {
-        METRIC_KEYS.forEach(([k]) => {
+        keys.forEach(([k]) => {
           const cell = document.getElementById(`ccell-${d.model}-${cssKey(k)}`);
           if (cell) cell.innerHTML = `<span class="metric-error">${escHtml(d.error)}</span>`;
         });
         return;
       }
-      METRIC_KEYS.forEach(([k]) => {
+      keys.forEach(([k]) => {
         const cell = document.getElementById(`ccell-${d.model}-${cssKey(k)}`);
         if (cell) cell.textContent = d.metrics[k] ?? '—';
       });
-      // re-evaluate best-by-accuracy row
+      // re-evaluate best row (by Accuracy for classification, R2 for regression)
       let bestName = null, bestScore = null;
       document.querySelectorAll('#compare-table [id^="crow-"]').forEach(tr => {
         const name = tr.id.replace('crow-','');
-        const cell = document.getElementById(`ccell-${name}-Accuracy`);
+        const cell = document.getElementById(`ccell-${name}-${rankKey}`);
         if (!cell) return;
         const val = parseFloat(cell.textContent);
         if (!isNaN(val) && (bestScore === null || val > bestScore)) { bestScore = val; bestName = name; }
@@ -388,106 +377,6 @@
           nameCell.innerHTML += '<span class="top3-badge">top 3</span>';
         }
       });
-    }
-
-    function renderFullSetupNote(host, d) {
-      const title = document.createElement('div');
-      title.className = 'section-title';
-      title.textContent = 'Top 3 — retrained on full dataset';
-      host.appendChild(title);
-      const note = document.createElement('div');
-      note.className = 'note';
-      note.textContent = `Trained on ${d.n_train.toLocaleString()} rows, evaluated on ${d.n_test.toLocaleString()} held-out rows.`;
-      host.appendChild(note);
-      const wrap = document.createElement('div');
-      wrap.className = 'table-wrap';
-      wrap.id = 'individual-wrap';
-      const table = document.createElement('table');
-      table.className = 'model-table';
-      table.innerHTML = `<thead><tr><th>Model</th><th>Time</th>${METRIC_KEYS.map(([,l])=>`<th>${l}</th>`).join('')}</tr></thead>`;
-      table.appendChild(document.createElement('tbody'));
-      wrap.appendChild(table);
-      host.appendChild(wrap);
-    }
-
-    function renderIndividualResult(host, d) {
-      const wrap = document.getElementById('individual-wrap');
-      if (!wrap) return;
-      const tbody = wrap.querySelector('tbody');
-      const tr = document.createElement('tr');
-      if (d.error) {
-        tr.innerHTML = `<td class="model-name">${MODEL_LABELS[d.model]||d.model}</td><td>${d.elapsed_s}s</td>
-          <td colspan="${METRIC_KEYS.length}" class="metric-error">${escHtml(d.error)}</td>`;
-      } else {
-        tr.innerHTML = `<td class="model-name">${MODEL_LABELS[d.model]||d.model}</td><td>${d.elapsed_s}s</td>
-          ${METRIC_KEYS.map(([k]) => `<td>${d.metrics[k] ?? '—'}</td>`).join('')}`;
-      }
-      tbody.appendChild(tr);
-
-      if (!document.getElementById('ensembles-title')) {
-        const title = document.createElement('div');
-        title.id = 'ensembles-title';
-        title.className = 'section-title';
-        title.textContent = 'Soft-voting ensembles (permutations of the top 3, full dataset)';
-        host.appendChild(title);
-        const wrap2 = document.createElement('div');
-        wrap2.className = 'table-wrap';
-        wrap2.id = 'ensembles-wrap';
-        const table2 = document.createElement('table');
-        table2.className = 'model-table';
-        table2.innerHTML = `<thead><tr><th>Models</th><th>Voting</th><th>Time</th>${METRIC_KEYS.map(([,l])=>`<th>${l}</th>`).join('')}</tr></thead>`;
-        table2.appendChild(document.createElement('tbody'));
-        wrap2.appendChild(table2);
-        host.appendChild(wrap2);
-      }
-    }
-
-    function renderEnsembleResult(host, d) {
-      const wrap = document.getElementById('ensembles-wrap');
-      if (!wrap) return;
-      const tbody = wrap.querySelector('tbody');
-      const names = d.models.map(m => MODEL_LABELS[m]||m).join(' + ');
-      const tr = document.createElement('tr');
-      if (d.error) {
-        tr.innerHTML = `<td class="model-name">${escHtml(names)}</td><td>Soft</td><td>${d.elapsed_s}s</td>
-          <td colspan="${METRIC_KEYS.length}" class="metric-error">${escHtml(d.error)}</td>`;
-      } else {
-        tr.innerHTML = `<td class="model-name">${escHtml(names)}</td><td>Soft</td><td>${d.elapsed_s}s</td>
-          ${METRIC_KEYS.map(([k]) => `<td>${d.metrics[k] ?? '—'}</td>`).join('')}`;
-      }
-      tbody.appendChild(tr);
-
-      // highlight best row by Accuracy across all ensemble rows
-      let bestTr = null, bestScore = null;
-      Array.from(tbody.children).forEach(row => {
-        const cells = row.querySelectorAll('td');
-        const accIdx = 3 + METRIC_KEYS.findIndex(([k]) => k === 'Accuracy');
-        const val = parseFloat(cells[accIdx] && cells[accIdx].textContent);
-        if (!isNaN(val) && (bestScore === null || val > bestScore)) { bestScore = val; bestTr = row; }
-      });
-      Array.from(tbody.children).forEach(row => row.classList.toggle('best-row', row === bestTr));
-    }
-
-    function renderSaved(host, savedModels) {
-      if (!savedModels || !savedModels.length) return;
-      const title = document.createElement('div');
-      title.className = 'section-title';
-      title.textContent = 'Saved models';
-      host.appendChild(title);
-      const card = document.createElement('div');
-      card.className = 'summary-card';
-      card.innerHTML = `<div class="note" style="margin-bottom:12px">
-        PyCaret-native pickles saved to <code>models/</code> on the server. These use a different
-        environment (PyCaret's own Python/scikit-learn versions) than the Inference page, so they
-        aren't loadable there yet — kept here for the record.
-      </div>`;
-      savedModels.forEach(s => {
-        card.innerHTML += `<div class="summary-row">
-          <span>${MODEL_LABELS[s.model]||s.model}</span>
-          <span style="font-weight:400;color:#64748b">${escHtml(s.filename)}</span>
-        </div>`;
-      });
-      host.appendChild(card);
     }
 
     function renderNextBanner(host) {

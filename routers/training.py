@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from common import (
-    AUTOML_VENV_PYTHON, AUTOML_WORKER_SCRIPT, MODELS_DIR, PREPARED_DIR,
+    AUTOML_VENV_PYTHON, AUTOML_WORKER_SCRIPT, PREPARED_DIR,
     _ID_COL_RE, _sse,
 )
 
@@ -33,8 +33,8 @@ async def _train_generator(req: TrainRequest):
     if req.label not in req.columns:
         yield _sse("error", {"detail": "Label is not in columns", "status": 400})
         return
-    if req.label_kind != "categorical":
-        yield _sse("error", {"detail": "Training currently supports classification labels only", "status": 400})
+    if req.label_kind not in ("categorical", "numeric"):
+        yield _sse("error", {"detail": "label_kind must be 'categorical' or 'numeric'", "status": 400})
         return
     if not AUTOML_VENV_PYTHON.exists():
         yield _sse("error", {"detail": "AutoML environment not installed on server (.venv-automl missing)", "status": 500})
@@ -46,15 +46,12 @@ async def _train_generator(req: TrainRequest):
         yield _sse("error", {"detail": "No feature columns to train on", "status": 400})
         return
 
-    run_id = str(uuid.uuid4())
     args = {
         "csv_path": str(path),
         "feature_cols": feature_cols,
         "label": req.label,
         "label_kind": req.label_kind,
         "sample_frac": req.sample_frac,
-        "models_dir": str(MODELS_DIR),
-        "run_id": run_id,
     }
 
     yield _sse("start", {
@@ -107,8 +104,8 @@ async def train_init(req: TrainRequest):
         raise HTTPException(status_code=404, detail="Clean file not found")
     if req.label not in req.columns:
         raise HTTPException(status_code=400, detail="Label is not in columns")
-    if req.label_kind != "categorical":
-        raise HTTPException(status_code=400, detail="Training currently supports classification labels only")
+    if req.label_kind not in ("categorical", "numeric"):
+        raise HTTPException(status_code=400, detail="label_kind must be 'categorical' or 'numeric'")
     job_id = str(uuid.uuid4())
     _job_store[job_id] = req
     return JSONResponse({"job_id": job_id})
