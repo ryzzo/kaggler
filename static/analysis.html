@@ -885,9 +885,11 @@
     // Data Collection resets all progress — confirm before navigating
     document.querySelector('.main-nav a[href="/"]').addEventListener('click', function(e) {
       e.preventDefault();
-      if (confirm('Going to Data Collection will clear all current progress (preparation, training, inference). Continue?')) {
-        sessionStorage.clear();
-        window.location.href = '/';
+      if (confirm('Going to Data Collection will clear all current progress (preparation, training, inference) and free up server resources. Continue?')) {
+        fetch('/reset', { method: 'POST' }).catch(() => {}).finally(() => {
+          sessionStorage.clear();
+          window.location.href = '/';
+        });
       }
     });
   </script>

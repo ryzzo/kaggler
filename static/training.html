@@ -225,6 +225,35 @@
       content.appendChild(resultsHost);
 
       runBtn.addEventListener('click', () => runTraining(data, label, labelKind, runBtn, resultsHost));
+
+      restorePreviousResults(data, labelKind, resultsHost);
+    }
+
+    // Data Training has no restore-on-load by default (unlike Preparation/
+    // Hyperparameter Search) — replay the last completed comparison from
+    // sessionStorage so navigating away and back doesn't lose it. Only restores
+    // when it's for the same prepared dataset; a stale result for a different
+    // clean_file_id is not shown.
+    function restorePreviousResults(data, labelKind, resultsHost) {
+      const raw = sessionStorage.getItem('trainingData');
+      if (!raw) return;
+      let training;
+      try { training = JSON.parse(raw); } catch { return; }
+      if (!training || training.clean_file_id !== data.clean_file_id) return;
+
+      const models = Object.keys(training.compare_results || {});
+      if (!models.length) return;
+
+      renderCompareSkeleton(resultsHost, models, labelKind);
+      models.forEach(model => {
+        const value = training.compare_results[model];
+        setCompareResult(value && value.error ? { model, error: value.error } : { model, metrics: value }, labelKind);
+      });
+      if (training.top3 && training.top3.length) markTop3(training.top3);
+      if (training.best_model_filename) {
+        renderBestModelNote(resultsHost, `${MODEL_LABELS[training.top3[0]]||training.top3[0]} fit and saved — ready for inference.`);
+      }
+      renderNextBanner(resultsHost);
     }
 
     function runTraining(data, label, labelKind, runBtn, resultsHost) {
@@ -379,7 +408,7 @@
     function setCompareResult(d, labelKind) {
       const keys = metricKeysFor(labelKind);
       const timeCell = document.getElementById(`ctime-${d.model}`);
-      if (timeCell) timeCell.textContent = `${d.elapsed_s}s`;
+      if (timeCell) timeCell.textContent = d.elapsed_s != null ? `${d.elapsed_s}s` : '—';
       if (d.error) {
         keys.forEach(([k]) => {
           const cell = document.getElementById(`ccell-${d.model}-${cssKey(k)}`);
@@ -476,9 +505,11 @@
     // Data Collection resets all progress — confirm before navigating
     document.querySelector('.main-nav a[href="/"]').addEventListener('click', function(e) {
       e.preventDefault();
-      if (confirm('Going to Data Collection will clear all current progress (preparation, training, inference). Continue?')) {
-        sessionStorage.clear();
-        window.location.href = '/';
+      if (confirm('Going to Data Collection will clear all current progress (preparation, training, inference) and free up server resources. Continue?')) {
+        fetch('/reset', { method: 'POST' }).catch(() => {}).finally(() => {
+          sessionStorage.clear();
+          window.location.href = '/';
+        });
       }
     });
   </script>

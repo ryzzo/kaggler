@@ -68,6 +68,7 @@ async def _train_generator(req: TrainRequest):
         json.dump(args, f)
         args_path = f.name
 
+    proc = None
     try:
         proc = await asyncio.create_subprocess_exec(
             str(AUTOML_VENV_PYTHON), str(AUTOML_WORKER_SCRIPT), args_path,
@@ -93,6 +94,10 @@ async def _train_generator(req: TrainRequest):
         if returncode != 0 and not saw_error:
             yield _sse("error", {"detail": stderr_tail[-2000:] or f"Worker exited with code {returncode}", "status": 500})
     finally:
+        # If the client disconnects mid-run (e.g. navigates away), don't leave the
+        # worker running orphaned in the background — it can be a multi-minute fit.
+        if proc is not None and proc.returncode is None:
+            proc.kill()
         Path(args_path).unlink(missing_ok=True)
 
 

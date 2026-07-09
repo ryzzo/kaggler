@@ -99,3 +99,26 @@ def resources():
         "gpu": _read_gpu(),
         "gpu_available": GPU_AVAILABLE,
     }
+
+
+@router.post("/reset")
+def reset():
+    """Clear every working directory and in-memory cache — used when returning to
+    Data Collection to start a completely new task with a clean slate. This is a
+    single-user local tool (no per-session scoping), so "reset" means everything."""
+    from common import MODELS_DIR, PREDICTIONS_DIR, PREPARED_DIR, UPLOAD_DIR, _analysis_cache
+    from routers import hyperparameter, inference, training
+
+    cleared_files = 0
+    for d in (UPLOAD_DIR, PREPARED_DIR, MODELS_DIR, PREDICTIONS_DIR):
+        for f in d.iterdir():
+            if f.is_file():
+                f.unlink()
+                cleared_files += 1
+
+    _analysis_cache.clear()
+    training._job_store.clear()
+    hyperparameter._job_store.clear()
+    inference._pycaret_infer_jobs.clear()
+
+    return {"status": "ok", "cleared_files": cleared_files}
