@@ -359,6 +359,15 @@
       sessionStorage.setItem('hyperparamExperiments', JSON.stringify(experimentLog));
     }
 
+    // Matches common.py's _ID_COL_RE — an id-like column (id, user_id, id_foo, ...)
+    // gets excluded from features during training, so anything persisted here for
+    // display or for the inference request must exclude it the same way, or the
+    // model ends up seeing one more column than it was trained on.
+    const ID_COL_RE = /^id$|^id[_-]|[_-]id$/i;
+    function deriveFeatureColumns(columns, label) {
+      return columns.filter(c => c !== label && !ID_COL_RE.test(c.trim()));
+    }
+
     function selectExperimentForInference(entry, training, labelKind) {
       selectedExperimentId = entry.experimentId;
       sessionStorage.setItem('selectedInferenceModel', JSON.stringify({
@@ -370,7 +379,8 @@
         filename: entry.filename || null,
         label: training.label,
         label_kind: labelKind,
-        feature_columns: training.columns.filter(c => c !== training.label),
+        columns: training.columns,
+        feature_columns: deriveFeatureColumns(training.columns, training.label),
         clean_file_id: training.clean_file_id,
       }));
     }
@@ -381,11 +391,30 @@
     // uses default (untuned) hyperparameters and Data Training's sample-comparison
     // score, since it hasn't been fit on the full dataset.
     function ensureBaselineExperiment(training, labelKind) {
-      const already = experimentLog.some(e => e.source === 'baseline' && e.cleanFileId === training.clean_file_id);
-      if (already) return;
       const bestModel = training.top3[0];
       const rankKey = labelKind === 'categorical' ? 'Accuracy' : 'R2';
       const metrics = (training.compare_results || {})[bestModel];
+      const bestValue = metrics && !metrics.error ? (metrics[rankKey] ?? null) : null;
+      const filename = training.best_model_filename || null;
+
+      const existing = experimentLog.find(e => e.source === 'baseline' && e.cleanFileId === training.clean_file_id);
+      if (existing) {
+        // A later Data Training run on the same prepared dataset can pick a
+        // different best model (or finish saving one that wasn't ready yet) —
+        // keep this single baseline row in sync instead of leaving it stale.
+        const changed = existing.model !== bestModel || existing.filename !== filename;
+        if (!changed) return;
+        existing.model = bestModel;
+        existing.best_value = bestValue;
+        existing.filename = filename;
+        existing.timestamp = new Date().toISOString();
+        saveExperiments();
+        if (existing.experimentId === selectedExperimentId) {
+          selectExperimentForInference(existing, training, labelKind);
+        }
+        return;
+      }
+
       const entry = {
         experimentId: nextExperimentId++,
         runId: 0,
@@ -394,11 +423,11 @@
         model: bestModel,
         n_trials: null,
         search_space: {},
-        best_value: metrics && !metrics.error ? (metrics[rankKey] ?? null) : null,
+        best_value: bestValue,
         best_params: {},
         metrics: null,
         error: null,
-        filename: training.best_model_filename || null,
+        filename,
         timestamp: new Date().toISOString(),
       };
       experimentLog.unshift(entry);

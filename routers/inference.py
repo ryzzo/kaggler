@@ -198,7 +198,7 @@ async def infer(
 
 class PycaretInferRequest(BaseModel):
     clean_file_id: str
-    feature_columns: list[str]
+    columns: list[str]
     label: str
     label_kind: str
     model_id: str
@@ -213,7 +213,7 @@ _pycaret_infer_jobs: dict[str, dict] = {}
 async def infer_pycaret_init(
     file: UploadFile = File(...),
     clean_file_id: str = Form(...),
-    feature_columns: str = Form(...),
+    columns: str = Form(...),
     label: str = Form(...),
     label_kind: str = Form(...),
     model_id: str = Form(...),
@@ -230,10 +230,19 @@ async def infer_pycaret_init(
         raise HTTPException(status_code=500, detail="AutoML environment not installed on server (.venv-automl missing)")
 
     try:
-        feats: list[str] = json.loads(feature_columns)
+        cols: list[str] = json.loads(columns)
         params: dict = json.loads(best_params)
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON in form fields")
+
+    # Derive feature columns the same way /train/init and /tune/init do — never
+    # trust a client-supplied feature list directly, so an id-like column can't
+    # sneak in as a "feature" here when it was excluded during training (that
+    # mismatch is exactly what causes LightGBM's "number of features" error).
+    excluded_id_cols = [c for c in cols if c != label and _ID_COL_RE.search(c.strip())]
+    feats = [c for c in cols if c != label and c not in excluded_id_cols]
+    if not feats:
+        raise HTTPException(status_code=400, detail="No feature columns to run inference on")
 
     content = await file.read()
     if not content:

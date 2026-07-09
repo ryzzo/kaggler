@@ -422,7 +422,7 @@
           const form = new FormData();
           form.append('file', selectedFile);
           form.append('clean_file_id', sel.clean_file_id);
-          form.append('feature_columns', JSON.stringify(sel.feature_columns));
+          form.append('columns', JSON.stringify(sel.columns));
           form.append('label', sel.label);
           form.append('label_kind', sel.label_kind);
           form.append('model_id', sel.model);

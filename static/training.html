@@ -392,24 +392,29 @@
         if (cell) cell.textContent = d.metrics[k] ?? '—';
       });
       // Re-evaluate best row: primary metric first, falling back through the rank
-      // cascade only when everything before it ties — not just the single rankKey
-      // column, so the highlighted "best" model matches what backend picks as top 3.
+      // cascade only when everything before it ties. This is just a live "best so
+      // far" preview while results are still streaming in — the authoritative
+      // pick is the backend's leaderboard_done top3[0], applied by markTop3()
+      // below, which always wins once it arrives.
       let bestName = null, bestTuple = null;
       document.querySelectorAll('#compare-table [id^="crow-"]').forEach(tr => {
         const name = tr.id.replace('crow-','');
         const rowMetrics = {};
-        let hasAny = false;
+        let complete = true;
         RANK_METRICS[labelKind].forEach(k => {
           const cell = document.getElementById(`ccell-${name}-${cssKey(k)}`);
-          if (cell && cell.textContent.trim() !== '' && cell.textContent !== '—') {
-            rowMetrics[k] = cell.textContent;
-            hasAny = true;
-          }
+          const val = cell ? parseFloat(cell.textContent) : NaN;
+          if (isNaN(val)) { complete = false; return; }
+          rowMetrics[k] = val;
         });
-        if (!hasAny) return;
+        if (!complete) return; // still waiting, or errored out — not a candidate
         const tuple = rankTuple(rowMetrics, labelKind);
         if (bestTuple === null || tupleGreater(tuple, bestTuple)) { bestTuple = tuple; bestName = name; }
       });
+      applyBestBadge(bestName);
+    }
+
+    function applyBestBadge(bestName) {
       document.querySelectorAll('#compare-table [id^="crow-"]').forEach(tr => {
         const name = tr.id.replace('crow-','');
         tr.classList.toggle('best-row', name === bestName);
@@ -427,6 +432,11 @@
           nameCell.innerHTML += '<span class="top3-badge">top 3</span>';
         }
       });
+      // Authoritative: top3[0] is exactly what gets fit+saved as "the best model"
+      // and what Hyperparameter Search uses as its baseline candidate — force the
+      // visual "best" badge to match it exactly, overriding the live incremental
+      // guess from setCompareResult (which can lag or misjudge mid-stream).
+      if (top3.length) applyBestBadge(top3[0]);
     }
 
     // Shared wording for 'fit_progress' events across Data Training, Hyperparameter
