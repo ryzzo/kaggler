@@ -1,0 +1,21 @@
+services:
+  kaggler:
+    build: .
+    image: kaggler:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      - uploads:/app/uploads
+      - prepared:/app/prepared
+      - models:/app/models
+      - predictions:/app/predictions
+    # joblib/loky (used by scikit-learn and PyCaret for parallel CV) shares data through
+    # /dev/shm; Docker's 64 MB default is too small for real datasets.
+    shm_size: "1gb"
+    restart: unless-stopped
+
+volumes:
+  uploads:
+  prepared:
+  models:
+  predictions:

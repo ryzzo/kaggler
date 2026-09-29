@@ -1,0 +1,22 @@
+.git
+.gitignore
+.dockerignore
+Dockerfile
+docker-compose.yml
+
+# Local venvs — rebuilt inside the image
+.venv/
+.venv-automl/
+__pycache__/
+*.py[cod]
+
+# Runtime data — mounted as volumes
+uploads/
+prepared/
+models/
+predictions/
+catboost_info/
+
+.env
+.env.*
+gfjrbkr
