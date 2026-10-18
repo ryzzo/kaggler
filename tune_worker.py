@@ -23,6 +23,7 @@ Emits one JSON object per line to stdout, forwarded live as SSE events by
 routers/hyperparameter.py.
 """
 import json
+import math
 import sys
 import threading
 import time
@@ -192,6 +193,65 @@ def suggest_params(trial, search_space: dict) -> dict:
     return params
 
 
+def stage_fractions(sample_frac: float, max_frac: float, stages: int) -> list[float]:
+    """Sample fraction per stage, growing geometrically from sample_frac (coarse,
+    cheap) to max_frac (fine, closer to the full data). One stage -> [sample_frac]."""
+    if stages <= 1:
+        return [sample_frac]
+    hi = min(1.0, max(sample_frac, max_frac))
+    return [round(sample_frac * (hi / sample_frac) ** (i / (stages - 1)), 4)
+            for i in range(stages)]
+
+
+def narrow_space(base_space: dict, trials, top_frac: float = 0.25, pad: float = 0.25) -> dict:
+    """Next stage's search space, zoomed in on where the best trials landed.
+
+    Takes the top `top_frac` of completed trials (at least 3) and, per parameter:
+      - int/float: spans [min, max] of the top trials' values, widened by `pad` of
+        that span (and never less than 5% of the original range, so the search
+        can still move if the top trials happened to cluster tightly). Computed in
+        log space for log-scale params. Always clamped to the ORIGINAL bounds.
+      - categorical: keeps only the choices seen among the top trials.
+    """
+    done = [t for t in trials if t.value is not None]
+    done.sort(key=lambda t: t.value, reverse=True)
+    top = done[:max(3, math.ceil(len(done) * top_frac))]
+
+    narrowed: dict = {}
+    for name, spec in base_space.items():
+        vals = [t.params[name] for t in top if name in t.params]
+        if not vals:
+            narrowed[name] = dict(spec)
+            continue
+
+        if spec["type"] == "categorical":
+            keep = [c for c in spec["choices"] if c in vals]
+            narrowed[name] = {**spec, "choices": keep or list(spec["choices"])}
+            continue
+
+        use_log = bool(spec.get("log"))
+        fwd = math.log if use_log else (lambda v: float(v))
+        inv = math.exp if use_log else (lambda v: v)
+        full_lo, full_hi = fwd(spec["low"]), fwd(spec["high"])
+        lo, hi = fwd(min(vals)), fwd(max(vals))
+        margin = max((hi - lo) * pad, (full_hi - full_lo) * 0.05)
+        new_lo = max(full_lo, lo - margin)
+        new_hi = min(full_hi, hi + margin)
+
+        if spec["type"] == "int":
+            step = 1 if use_log else int(spec.get("step", 1))
+            low = max(int(spec["low"]), int(math.floor(inv(new_lo))))
+            high = min(int(spec["high"]), int(math.ceil(inv(new_hi))))
+            if not use_log:  # keep `low` on the original step grid
+                low = int(spec["low"]) + ((low - int(spec["low"])) // step) * step
+            if high <= low:
+                high = min(int(spec["high"]), low + step)
+            narrowed[name] = {**spec, "low": low, "high": high}
+        else:
+            narrowed[name] = {**spec, "low": inv(new_lo), "high": inv(new_hi)}
+    return narrowed
+
+
 def _classification_metrics(y_true, y_pred, model, X) -> dict:
     from sklearn.metrics import (
         accuracy_score, cohen_kappa_score, f1_score, matthews_corrcoef,
@@ -245,6 +305,13 @@ def main() -> None:
     models_dir = Path(args["models_dir"])
     run_id: str = args["run_id"]
 
+    # Coarse-to-fine search: n_trials (per model) applies to EACH stage; sample size
+    # grows geometrically from sample_frac up to max_sample_frac across the stages.
+    n_stages = max(1, min(6, int(args.get("stages", 1))))
+    max_sample_frac: float = float(args.get("max_sample_frac", 0.5))
+    top_frac: float = float(args.get("top_frac", 0.25))
+    pad: float = float(args.get("pad", 0.25))
+
     if label_kind not in ("categorical", "numeric"):
         emit("error", detail="label_kind must be 'categorical' or 'numeric'")
         return
@@ -273,61 +340,119 @@ def main() -> None:
     df = df[feature_cols + [label]]
 
     n_total = len(df)
-    if is_classification:
-        sample = df.groupby(label, group_keys=False).apply(
-            lambda g: g.sample(frac=sample_frac, random_state=42)
-        )
-    else:
-        sample = df.sample(frac=sample_frac, random_state=42)
-    emit("sample_ready", n_total=n_total, n_sample=len(sample), sample_frac=sample_frac)
 
-    # PyCaret's setup() only used here for its preprocessing pipeline (consistent
-    # encoding/scaling with the rest of the app) — X/y below feed straight into
-    # plain sklearn cross_val_score, not pycaret's own model functions.
-    exp = Experiment()
-    exp.setup(data=sample, target=label, session_id=42, train_size=0.8,
-              n_jobs=1, verbose=False, html=False, use_gpu=pycaret_use_gpu())
-    X =exp.X_train_transformed
-    y = exp.y_train_transformed
+    def make_sample(frac: float):
+        if is_classification:
+            return df.groupby(label, group_keys=False).apply(
+                lambda g: g.sample(frac=frac, random_state=42)
+            )
+        return df.sample(frac=frac, random_state=42)
+
+    # ── Coarse-to-fine schedule ──
+    # stages=1 is the classic single search. With stages>1 each later stage
+    # searches a narrower space (around the best trials of the previous stage) on
+    # a larger sample, warm-started from the previous stage's best.
+    fracs = stage_fractions(sample_frac, max_sample_frac, n_stages)
+
+    stage_data: dict[int, tuple] = {}
+
+    def get_stage_data(i: int):
+        """Sample + PyCaret preprocessing for stage i, computed once and shared
+        by every model. PyCaret's setup() is only used for its preprocessing
+        pipeline (consistent encoding/scaling with the rest of the app) — X/y feed
+        straight into plain sklearn cross_val_score, not pycaret's model functions."""
+        if i not in stage_data:
+            sample = make_sample(fracs[i])
+            exp = Experiment()
+            exp.setup(data=sample, target=label, session_id=42, train_size=0.8,
+                      n_jobs=1, verbose=False, html=False, use_gpu=pycaret_use_gpu())
+            stage_data[i] = (exp.X_train_transformed, exp.y_train_transformed, len(sample))
+        return stage_data[i]
+
+    first_n = get_stage_data(0)[2]
+    emit("sample_ready", n_total=n_total, n_sample=first_n, sample_frac=fracs[0],
+         stages=n_stages, stage_fractions=fracs)
 
     studies: dict[str, object] = {}
     for cfg in models_cfg:
         mid = cfg["model_id"]
-        n_trials = int(cfg.get("n_trials", 30))
-        search_space = cfg.get("search_space", {})
-        emit("search_start", model=mid, n_trials=n_trials)
+        n_trials = int(cfg.get("n_trials", 30))  # per stage
+        base_space = cfg.get("search_space", {})
+        total_trials = n_trials * n_stages
+        emit("search_start", model=mid, n_trials=total_trials, stages=n_stages,
+             trials_per_stage=n_trials)
 
         t0 = time.perf_counter()
+        last_study = None
+        stage_summaries: list[dict] = []
+        space = base_space
+        error: Exception | None = None
 
-        def objective(trial, mid=mid, search_space=search_space):
-            params = suggest_params(trial, search_space)
+        for si in range(n_stages):
             try:
-                model = build_model(label_kind, mid, params)
-                if is_classification:
-                    cv = StratifiedKFold(n_splits=fold, shuffle=True, random_state=42)
-                else:
-                    cv = KFold(n_splits=fold, shuffle=True, random_state=42)
-                scores = cross_val_score(model, X, y, cv=cv, scoring=scoring, n_jobs=1)
-                return float(scores.mean())
-            except Exception:
-                return 0.0 if is_classification else -1e9
+                X, y, n_sample = get_stage_data(si)
+                offset = si * n_trials
+                emit("stage_start", model=mid, stage=si + 1, stages=n_stages,
+                     sample_frac=fracs[si], n_sample=n_sample, search_space=space)
 
-        study = optuna.create_study(direction="maximize")
+                def objective(trial, mid=mid, space=space, X=X, y=y):
+                    params = suggest_params(trial, space)
+                    try:
+                        model = build_model(label_kind, mid, params)
+                        if is_classification:
+                            cv = StratifiedKFold(n_splits=fold, shuffle=True, random_state=42)
+                        else:
+                            cv = KFold(n_splits=fold, shuffle=True, random_state=42)
+                        scores = cross_val_score(model, X, y, cv=cv, scoring=scoring, n_jobs=1)
+                        return float(scores.mean())
+                    except Exception:
+                        return 0.0 if is_classification else -1e9
 
-        def callback(study, trial, mid=mid, n_trials=n_trials, t0=t0):
-            emit("trial_result", model=mid, trial=trial.number, n_trials=n_trials,
-                 value=round(trial.value, 4) if trial.value is not None else None,
-                 best_value=round(study.best_value, 4), params=trial.params,
+                study = optuna.create_study(direction="maximize")
+                if last_study is not None:
+                    # Warm start: re-score the previous stage's best on this stage's
+                    # (larger) sample as its first trial.
+                    try:
+                        study.enqueue_trial(last_study.best_params)
+                    except Exception:
+                        pass
+
+                def callback(study, trial, mid=mid, si=si, offset=offset, t0=t0,
+                             total_trials=total_trials):
+                    emit("trial_result", model=mid, trial=offset + trial.number,
+                         n_trials=total_trials, stage=si + 1, stages=n_stages,
+                         value=round(trial.value, 4) if trial.value is not None else None,
+                         best_value=round(study.best_value, 4), params=trial.params,
+                         elapsed_s=round(time.perf_counter() - t0, 2))
+
+                study.optimize(objective, n_trials=n_trials, callbacks=[callback])
+                last_study = study
+                stage_summaries.append({
+                    "stage": si + 1, "sample_frac": fracs[si], "n_sample": n_sample,
+                    "best_value": round(study.best_value, 4),
+                    "best_params": study.best_params, "search_space": space,
+                })
+                emit("stage_done", model=mid, stages=n_stages, **stage_summaries[-1])
+                if si + 1 < n_stages:
+                    space = narrow_space(base_space, study.trials, top_frac, pad)
+            except Exception as exc:
+                error = exc
+                break  # keep whatever earlier stages produced
+
+        if last_study is None:
+            emit("search_done", model=mid, error=str(error) if error else "Search failed",
                  elapsed_s=round(time.perf_counter() - t0, 2))
-
+            continue
         try:
-            study.optimize(objective, n_trials=n_trials, callbacks=[callback])
-            studies[mid] = study
-            history_json = vis.plot_optimization_history(study).to_json()
-            slice_json = vis.plot_slice(study).to_json() if search_space else None
-            emit("search_done", model=mid, best_value=round(study.best_value, 4),
-                 best_params=study.best_params, history_json=history_json,
-                 slice_json=slice_json, elapsed_s=round(time.perf_counter() - t0, 2))
+            studies[mid] = last_study
+            history_json = vis.plot_optimization_history(last_study).to_json()
+            slice_json = vis.plot_slice(last_study).to_json() if space else None
+            emit("search_done", model=mid, best_value=round(last_study.best_value, 4),
+                 best_params=last_study.best_params, history_json=history_json,
+                 slice_json=slice_json, stage_summaries=stage_summaries,
+                 warning=(f"Stopped after stage {len(stage_summaries)}/{n_stages}: {error}"
+                          if error else None),
+                 elapsed_s=round(time.perf_counter() - t0, 2))
         except Exception as exc:
             emit("search_done", model=mid, error=str(exc),
                  elapsed_s=round(time.perf_counter() - t0, 2))

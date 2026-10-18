@@ -24,6 +24,7 @@ AUTOML_VENV_PYTHON = Path(".venv-automl/bin/python")
 AUTOML_WORKER_SCRIPT = Path("automl_worker.py")
 TUNE_WORKER_SCRIPT = Path("tune_worker.py")
 INFER_WORKER_SCRIPT = Path("infer_worker.py")
+AUTOTUNE_WORKER_SCRIPT = Path("autotune_worker.py")
 
 # In-memory analysis cache: populated by /analyze, consumed by /prepare.
 # Keys are file_ids; automatically cleared on server restart.

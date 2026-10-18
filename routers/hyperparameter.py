@@ -15,7 +15,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from common import (
     AUTOML_VENV_PYTHON, MODELS_DIR, PREPARED_DIR, TUNE_WORKER_SCRIPT,
@@ -39,6 +39,11 @@ class TuneRequest(BaseModel):
     models: list[ModelTuneSpec]
     sample_frac: float = 0.1
     fold: int = 5
+    # Coarse-to-fine: stages=1 is a single search. With stages>1, n_trials applies
+    # per stage; the sample grows from sample_frac to max_sample_frac and the search
+    # space narrows around the best trials of the previous stage.
+    stages: int = Field(1, ge=1, le=6)
+    max_sample_frac: float = Field(0.5, gt=0, le=1.0)
 
 
 async def _tune_generator(req: TuneRequest):
@@ -73,6 +78,8 @@ async def _tune_generator(req: TuneRequest):
         "label_kind": req.label_kind,
         "sample_frac": req.sample_frac,
         "fold": req.fold,
+        "stages": req.stages,
+        "max_sample_frac": req.max_sample_frac,
         "models": [m.model_dump() for m in req.models],
         "models_dir": str(MODELS_DIR),
         "run_id": run_id,

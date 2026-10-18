@@ -136,6 +136,21 @@ Every slow fit reports progress: real per-iteration counts for LightGBM/CatBoost
 #### Visualisation
 Two Optuna plots per model — **optimization history** and **parameter slice** — rendered via Plotly.js from `optuna.visualization`.
 
+#### Coarse-to-fine stages
+Set **Coarse→fine stages** above 1 to search in rounds: *Trials* applies per stage, the sample grows geometrically from 10% to the **Final stage sample %**, and each stage's search space narrows around the best 25% of the previous stage's trials (clamped to your original bounds; categoricals keep only the choices that did well). The previous stage's best is re-scored first as a warm start. The final full-data refit uses the last stage's best parameters.
+
+#### GPU
+`gpu.py` detects an NVIDIA GPU (`nvidia-smi`) and verifies with a tiny test fit that CatBoost (`task_type="GPU"`) / LightGBM (`device_type="gpu"`, needs a GPU-enabled build) really work before using them; PyCaret gets `use_gpu`. `KAGGLER_USE_GPU=0` forces CPU. In Docker use `docker compose -f docker-compose.yml -f docker-compose.gpu.yml up`.
+
+#### Autopilot (continuous search)
+An endless search that runs **on the server** until you press Stop (it keeps going if you close the page; reopening re-attaches). `autotune_worker.py` builds one PyCaret pipeline + train/hold-out split from the full data (identical to `infer_worker.py`'s) and loops over rounds:
+- **Rounds 1–6 (ladder):** complexity 1→5 and search data 5%→10%→20%→35%→50%→75% of the training split (nested, stratified subsets), 15→80 trials per model. Parameters enter the search space as complexity rises (e.g. LightGBM starts with `n_estimators`/`learning_rate`/`num_leaves` and later adds depth, sampling and L1/L2 regularisation with wider ranges); slow models (KNN, SVR, linear models) drop out once their search stops paying off.
+- **Round 7+:** complexity 6 on 100% of the training data, forever — alternating **explore** rounds (widest space, new sampler seed) and **refine** rounds (ranges zoomed in around the best parameters so far, tighter each time), with the trial count growing each round (100→400).
+- After each model's search the best parameters are refit on the **full training split** and scored on the fixed hold-out; if it beats the current best it atomically replaces `models/autopilot_best__<clean_file_id>.joblib` and Inference is pointed at it (optional checkbox).
+- Progress (round counter, per-model bests) is persisted in `models/autopilot_state__<id>.json`, so Stop → Start resumes, and a crashed worker is restarted automatically (up to 5 consecutive crashes).
+- Because the hold-out score is used to pick the winner round after round, a long run can slightly over-fit that hold-out; treat the reported score as optimistic.
+- Endpoints: `POST /auto/start`, `POST /auto/stop`, `GET /auto/status`, `GET /auto/stream`, `GET /auto/best`.
+
 #### Experiment log & inference selection
 - Every run (whatever models/config you try) is appended to a persistent, growing log rather than overwriting the last one — so different configurations can be compared side by side.
 - Data Training's best model is seeded into the log as a **Baseline** candidate (default hyperparameters) and auto-selected for inference on first visit — this baseline stays in sync if a later Data Training run (on the same prepared dataset) finds a different best model.
@@ -173,6 +188,7 @@ Three worker scripts run inside `.venv-automl` as **subprocesses**, launched fro
 |---|---|---|
 | `automl_worker.py` | Data Training | Model comparison + best-model save |
 | `tune_worker.py` | Hyperparameter Search | Optuna search + full-dataset refit; also exports shared `build_model`/`fit_with_progress`/`run_with_heartbeat` helpers imported by the other two workers |
+| `autotune_worker.py` | Hyperparameter Search → Autopilot | Endless simple→complex search; keeps the best model saved for Inference |
 | `infer_worker.py` | Inference | Real prediction execution |
 
 The FastAPI app itself is a thin `main.py` that mounts a **router per concern**:
@@ -185,6 +201,7 @@ routers/
 ├── preparation.py     # /prepare + downloads
 ├── training.py        # /train/* — shells out to automl_worker.py
 ├── hyperparameter.py  # /tune/* — shells out to tune_worker.py
+├── autopilot.py       # /auto/* — server-owned endless search, shells out to autotune_worker.py
 ├── inference.py       # /infer, /infer/pycaret/* — shells out to infer_worker.py
 └── resources.py       # /health, /resources
 ```
@@ -223,6 +240,8 @@ kaggler/
 ├── common.py                 # Shared paths, analysis cache, SSE helper, id-column regex
 ├── automl_worker.py           # Data Training's model-comparison subprocess (.venv-automl)
 ├── tune_worker.py              # Hyperparameter Search's Optuna subprocess (.venv-automl)
+├── autotune_worker.py          # Autopilot's endless-search subprocess (.venv-automl)
+├── gpu.py                      # GPU detection + per-library GPU kwargs (shared by workers)
 ├── infer_worker.py             # Inference's prediction subprocess (.venv-automl)
 ├── routers/                    # One APIRouter per concern (see Architecture)
 ├── requirements.txt            # Main app deps
