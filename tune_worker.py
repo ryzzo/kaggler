@@ -31,6 +31,8 @@ from pathlib import Path
 import joblib
 import pandas as pd
 
+from gpu import describe as gpu_describe, gpu_kwargs, pycaret_use_gpu
+
 MODEL_CLASS_MAP: dict[str, dict] = {"categorical": {}, "numeric": {}}
 FIXED_KWARGS: dict[str, dict] = {"categorical": {}, "numeric": {}}
 
@@ -101,7 +103,7 @@ def emit(event: str, **data) -> None:
 
 def build_model(label_kind: str, model_id: str, params: dict):
     cls = MODEL_CLASS_MAP[label_kind][model_id]
-    kwargs = {**FIXED_KWARGS[label_kind].get(model_id, {}), **params}
+    kwargs = {**FIXED_KWARGS[label_kind].get(model_id, {}), **gpu_kwargs(model_id), **params}
     return cls(**kwargs)
 
 
@@ -153,7 +155,10 @@ def fit_with_progress(model, X, y, model_id: str, emit_fn) -> None:
         model.fit(X, y, callbacks=[lgbm_callback])
         return
 
-    if cls_name in ("CatBoostClassifier", "CatBoostRegressor"):
+    # CatBoost's Python callbacks are CPU-only, so GPU-trained CatBoost falls
+    # through to the heartbeat path below.
+    if (cls_name in ("CatBoostClassifier", "CatBoostRegressor")
+            and model.get_params().get("task_type") != "GPU"):
         total = model.get_params().get("iterations") or 1000
 
         class _Callback:
@@ -248,6 +253,7 @@ def main() -> None:
         return
 
     _load_model_classes()
+    emit("gpu_info", **gpu_describe())
 
     import optuna
     import optuna.visualization as vis
@@ -280,8 +286,8 @@ def main() -> None:
     # plain sklearn cross_val_score, not pycaret's own model functions.
     exp = Experiment()
     exp.setup(data=sample, target=label, session_id=42, train_size=0.8,
-              n_jobs=1, verbose=False, html=False)
-    X = exp.X_train_transformed
+              n_jobs=1, verbose=False, html=False, use_gpu=pycaret_use_gpu())
+    X =exp.X_train_transformed
     y = exp.y_train_transformed
 
     studies: dict[str, object] = {}
@@ -333,7 +339,7 @@ def main() -> None:
     # ── Final fit: best hyperparameters, once, on the full dataset ──
     exp2 = Experiment()
     exp2.setup(data=df, target=label, session_id=42, train_size=0.8,
-               n_jobs=1, verbose=False, html=False)
+               n_jobs=1, verbose=False, html=False, use_gpu=pycaret_use_gpu())
     emit("full_setup", n_train=len(exp2.X_train), n_test=len(exp2.X_test))
 
     Xtr, ytr = exp2.X_train_transformed, exp2.y_train_transformed

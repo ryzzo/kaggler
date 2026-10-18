@@ -1,0 +1,16 @@
+# GPU override. Requires an NVIDIA GPU, the NVIDIA driver and the NVIDIA Container
+# Toolkit on the Docker host. Use together with the base file:
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build
+services:
+  kaggler:
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+      KAGGLER_USE_GPU: auto
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

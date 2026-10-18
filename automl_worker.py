@@ -20,6 +20,7 @@ from pathlib import Path
 import joblib
 import pandas as pd
 
+from gpu import describe as gpu_describe, pycaret_use_gpu
 from tune_worker import run_with_heartbeat
 
 # Turbo-safe model sets: exclude models known to be extremely slow or degenerate
@@ -109,8 +110,10 @@ def main() -> None:
         exp = RegressionExperiment()
         candidate_models = CANDIDATE_MODELS_REGRESSION
 
+    use_gpu = pycaret_use_gpu()
+    emit("gpu_info", **gpu_describe())
     exp.setup(data=sample, target=label, session_id=42, train_size=0.8,
-              n_jobs=1, verbose=False, html=False)
+              n_jobs=1, verbose=False, html=False, use_gpu=use_gpu)
 
     available = set(exp.models().index.tolist())
     model_ids = [m for m in candidate_models if m in available]
@@ -145,7 +148,7 @@ def main() -> None:
         try:
             exp2 = ClassificationExperiment() if label_kind == "categorical" else RegressionExperiment()
             exp2.setup(data=df, target=label, session_id=42, train_size=0.8,
-                       n_jobs=1, verbose=False, html=False)
+                       n_jobs=1, verbose=False, html=False, use_gpu=use_gpu)
             best_model = run_with_heartbeat(
                 lambda: exp2.create_model(best_id, verbose=False), best_id, emit
             )
