@@ -133,6 +133,14 @@ For each selected model, a config card lets you:
 #### Live progress
 Every slow fit reports progress: real per-iteration counts for LightGBM/CatBoost (native training callbacks), and an elapsed-time heartbeat for everything else (most sklearn estimators have no generic incremental-fit hook, so the fit runs in a background thread while a "still working — Ns elapsed" tick streams to the UI).
 
+#### Live progress charts
+`static/progress-charts.js` (Plotly) draws progress as it happens, from the same SSE events the workers already emit:
+- **Data Training:** a live leaderboard — models ranked by score as each finishes, top 3 highlighted at the end.
+- **Hyperparameter Search:** per model, every trial as a dot plus the best-so-far line, with coarse→fine stage boundaries marked.
+- **Autopilot:** headline numbers (best score, rounds completed, current round, time since last improvement), *best hold-out score over time* with rounds shaded, *current-round search progress* per model, and *hold-out score by round* per model (axis labelled with complexity level and share of data). A data table sits under the last chart.
+- Autopilot's history (`GET /auto/history`) is stored in its state file, so the charts rebuild after a page reload or restart.
+- A model keeps the same colour on every chart and page (validated categorical palette, first 8 models; the rest are grey).
+
 #### Visualisation
 Two Optuna plots per model — **optimization history** and **parameter slice** — rendered via Plotly.js from `optuna.visualization`.
 

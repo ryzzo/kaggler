@@ -10,6 +10,7 @@ follows live ones). It shells out to autotune_worker.py in .venv-automl.
   GET  /auto/status  current state: running?, round, best model so far
   GET  /auto/stream  SSE: recent events replayed, then live; ends after "closed"
   GET  /auto/best    best model found so far for a dataset (works while stopped too)
+  GET  /auto/history per-round scores / bests / round times, for the progress charts
 
 The best model is always saved as models/autopilot_best__<clean_file_id>.joblib in
 the same bundle format the inference worker already loads, replaced atomically
@@ -270,6 +271,22 @@ async def auto_best(clean_file_id: str):
     if best is None or not best_path.exists():
         raise HTTPException(status_code=404, detail="Autopilot has not found a model for this dataset yet")
     return JSONResponse(best)
+
+
+@router.get("/auto/history")
+async def auto_history(clean_file_id: str):
+    """Compact per-round history for the progress charts (hold-out score per model
+    per round, every new best, round start/end times). Read from the worker's
+    state file, so it survives page reloads and restarts and works while stopped."""
+    if not _SAFE_ID.match(clean_file_id):
+        raise HTTPException(status_code=400, detail="Invalid clean_file_id")
+    _, state_path = _paths(clean_file_id)
+    try:
+        history = json.loads(state_path.read_text()).get("history") or {}
+    except Exception:
+        history = {}
+    return JSONResponse({"results": history.get("results", []), "bests": history.get("bests", []),
+                         "rounds": history.get("rounds", [])})
 
 
 @router.get("/auto/stream")

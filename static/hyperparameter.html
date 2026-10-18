@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Hyperparameter Search</title>
   <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+  <script src="/static/progress-charts.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -728,7 +729,12 @@
       const autoBestHost = document.createElement('div');
       const autoLog = document.createElement('div');
       autoLog.className = 'note';
-      content.append(autoStatus, autoProgress, autoTrack, autoBestHost, autoLog);
+      const autoChartsHost = document.createElement('div');
+      content.append(autoStatus, autoProgress, autoTrack, autoBestHost, autoChartsHost, autoLog);
+      // Live charts: best score over time, current-round search, hold-out score by round
+      const autoCharts = window.ProgressCharts
+        ? ProgressCharts.autopilot(autoChartsHost, { scoreLabel: autoScoreLabel, classification: labelKind === 'categorical' })
+        : null;
 
       let autoES = null;
       let autoBest = null;
@@ -782,6 +788,10 @@
         if (autoES) autoES.close();
         const es = autoES = new EventSource('/auto/stream?after=0');
         const on = (name, fn) => es.addEventListener(name, (e) => { const d = safeJSON(e.data); if (d) fn(d); });
+        if (autoCharts) {
+          ['round_start', 'model_start', 'trial_result', 'model_result', 'new_best', 'round_done'].forEach(name =>
+            es.addEventListener(name, (e) => { const d = safeJSON(e.data); if (d) autoCharts.ingest(name, d); }));
+        }
 
         on('start', d => {
           autoSetRunning(true);
@@ -856,7 +866,7 @@
             if (res.status === 409) { autoSetRunning(true); autoAttach(); }
             return;
           }
-          autoBestHost.innerHTML = autoFresh.checked ? '' : autoBestHost.innerHTML;
+          if (autoFresh.checked) { autoBestHost.innerHTML = ''; if (autoCharts) autoCharts.reset(); }
           autoSetRunning(true);
           autoAttach();
         } catch (e) {
@@ -872,7 +882,13 @@
       });
 
       // On page load: re-attach to a running autopilot, or show the best model it found earlier.
-      fetch(`/auto/status?clean_file_id=${encodeURIComponent(training.clean_file_id)}`)
+      // History first (it survives reloads/restarts), then re-attach to the live stream.
+      const autoQuery = encodeURIComponent(training.clean_file_id);
+      fetch(`/auto/history?clean_file_id=${autoQuery}`)
+        .then(r => r.json())
+        .then(h => { if (autoCharts) autoCharts.load(h); })
+        .catch(() => {})
+        .then(() => fetch(`/auto/status?clean_file_id=${autoQuery}`))
         .then(r => r.json())
         .then(s => {
           if (s.best) autoRenderBest(s.best);
@@ -930,6 +946,7 @@
       resultsHost.innerHTML = '';
       let es = null;
       const modelsById = Object.fromEntries(models.map(m => [m.model_id, m]));
+      const tuneCharts = {}; // model_id -> live trial chart
       const stageLabels = {}; // model_id -> "Stage 2/3 (...) · " prefix for the progress line
       const pendingSearch = {}; // model_id -> { best_value, best_params } from search_done, merged in at full_refit_result
 
@@ -984,18 +1001,33 @@
         });
         es.addEventListener('search_start', (e) => {
           const d = safeJSON(e.data);
-          if (d) renderSearchStart(resultsHost, d);
+          if (!d) return;
+          renderSearchStart(resultsHost, d);
+          // Live chart of this model's trials (dots) and best-so-far (line)
+          const sec = document.getElementById(`result-sec-${d.model}`);
+          if (sec && window.ProgressCharts) {
+            const chartHost = document.createElement('div');
+            sec.appendChild(chartHost);
+            tuneCharts[d.model] = ProgressCharts.trialChart(chartHost, {
+              model: d.model,
+              scoreLabel: labelKind === 'categorical' ? 'CV accuracy' : 'CV R²',
+              classification: labelKind === 'categorical',
+            });
+            tuneCharts[d.model].setPerStage(d.trials_per_stage || d.n_trials);
+          }
         });
         es.addEventListener('stage_start', (e) => {
           const d = safeJSON(e.data);
-          if (!d || d.stages <= 1) return;
+          if (!d) return;
+          if (tuneCharts[d.model]) tuneCharts[d.model].markStage(d);
+          if (d.stages <= 1) return;
           stageLabels[d.model] = `Stage ${d.stage}/${d.stages} (${Math.round(d.sample_frac * 100)}% sample, ${d.n_sample.toLocaleString()} rows) · `;
           const line = document.getElementById(`progress-${d.model}`);
           if (line) line.textContent = `${stageLabels[d.model]}starting…`;
         });
         es.addEventListener('trial_result', (e) => {
           const d = safeJSON(e.data);
-          if (d) renderTrialProgress(d, labelKind);
+          if (d) { renderTrialProgress(d, labelKind); if (tuneCharts[d.model]) tuneCharts[d.model].addTrial(d); }
         });
         es.addEventListener('search_done', (e) => {
           const d = safeJSON(e.data);

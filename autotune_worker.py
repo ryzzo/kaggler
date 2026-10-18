@@ -48,7 +48,9 @@ from tune_worker import (
 
 
 def emit(event: str, **data) -> None:
-    print(json.dumps({"event": event, **data}), flush=True)
+    # `ts` (unix seconds) lets the UI place events on a real time axis, including
+    # events replayed after a page reload.
+    print(json.dumps({"event": event, "ts": round(time.time(), 2), **data}), flush=True)
 
 
 # ── Search spaces ────────────────────────────────────────────────────────────
@@ -350,6 +352,17 @@ def main() -> None:
     def fixed(mid: str, params: dict) -> dict:
         return {**AUTO_FIXED.get(mid, {}), **params}
 
+    # Compact progress history for the charts. Unlike the in-memory event buffer
+    # (which trial events eventually push old entries out of), this survives page
+    # reloads, worker restarts and server restarts.
+    history = state.setdefault("history", {"results": [], "bests": [], "rounds": []})
+    for key in ("results", "bests", "rounds"):
+        history.setdefault(key, [])
+
+    def hist_add(kind: str, rec: dict) -> None:
+        history[kind].append(rec)
+        del history[kind][:-5000]
+
     r = int(state["round"])
     while not stopping():
         plan = plan_round(r)
@@ -363,6 +376,9 @@ def main() -> None:
             # re-searched (fresh seeds / tighter zooms) at their own top complexity.
             round_models = list(candidates)
         emit("round_start", **plan, n_rows=n_rows, n_train=n_train, models=round_models)
+        history["rounds"] = [h for h in history["rounds"] if h["round"] != r]  # a resumed round restarts
+        hist_add("rounds", {"round": r, "mode": plan["mode"], "level": level, "frac": frac,
+                            "start_ts": round(time.time(), 2), "end_ts": None})
         t_round = time.perf_counter()
         board = []
 
@@ -431,6 +447,8 @@ def main() -> None:
                  score=round(score, 4), metrics=metrics, best_params=best_params,
                  elapsed_s=round(time.perf_counter() - t0, 2))
             board.append({"model": mid, "score": round(score, 4)})
+            hist_add("results", {"round": r, "model": mid, "score": round(score, 4), "level": level,
+                                 "frac": frac, "mode": plan["mode"], "ts": round(time.time(), 2)})
 
             # Per-model memory (warm starts) — keep the best test score seen for this model.
             if score > known.get("score", -math.inf):
@@ -449,11 +467,16 @@ def main() -> None:
                     "filename": best_path.name, "saved_at": time.time(),
                 }
                 emit("new_best", **state["best"])
+                hist_add("bests", {"ts": round(time.time(), 2), "score": round(score, 4), "model": mid,
+                                   "round": r, "level": level, "frac": frac})
             save_state()
 
         if stopping():
             break
         state["round"] = r + 1
+        for h in history["rounds"]:
+            if h["round"] == r:
+                h["end_ts"] = round(time.time(), 2)
         save_state()
         emit("round_done", round=r, mode=plan["mode"], level=level, frac=frac,
              elapsed_s=round(time.perf_counter() - t_round, 2), board=board,

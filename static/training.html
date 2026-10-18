@@ -4,6 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Data Training</title>
+  <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+  <script src="/static/progress-charts.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -244,7 +246,12 @@
       const models = Object.keys(training.compare_results || {});
       if (!models.length) return;
 
+      const restoredChart = makeLeaderboard(resultsHost, labelKind, models.length);
       renderCompareSkeleton(resultsHost, models, labelKind);
+      if (restoredChart) {
+        restoredChart.addMany(training.compare_results);
+        if (training.top3 && training.top3.length) restoredChart.setTop3(training.top3);
+      }
       models.forEach(model => {
         const value = training.compare_results[model];
         setCompareResult(value && value.error ? { model, error: value.error } : { model, metrics: value }, labelKind);
@@ -254,6 +261,19 @@
         renderBestModelNote(resultsHost, `${MODEL_LABELS[training.top3[0]]||training.top3[0]} fit and saved — ready for inference.`);
       }
       renderNextBanner(resultsHost);
+    }
+
+    // Live chart of the model comparison, placed above the results table.
+    function makeLeaderboard(host, labelKind, total) {
+      if (!window.ProgressCharts) return null;
+      const chartHost = document.createElement('div');
+      host.appendChild(chartHost);
+      const chart = ProgressCharts.leaderboard(chartHost, {
+        metricKey: labelKind === 'categorical' ? 'Accuracy' : 'R2',
+        metricLabel: labelKind === 'categorical' ? 'Accuracy' : 'R²',
+      });
+      chart.setTotal(total);
+      return chart;
     }
 
     function runTraining(data, label, labelKind, runBtn, resultsHost) {
@@ -299,6 +319,7 @@
 
         es = new EventSource(`/train/stream/${jobId}`);
         let top3Models = [];
+        let trainChart = null;
         let compareResults = {};
         let bestModelFilename = null;
 
@@ -312,18 +333,22 @@
         });
         es.addEventListener('compare_start', (e) => {
           const d = safeJSON(e.data);
-          if (d) renderCompareSkeleton(resultsHost, d.models, labelKind);
+          if (d) {
+            trainChart = makeLeaderboard(resultsHost, labelKind, d.models.length);
+            renderCompareSkeleton(resultsHost, d.models, labelKind);
+          }
         });
         es.addEventListener('compare_result', (e) => {
           const d = safeJSON(e.data);
           if (d) {
             compareResults[d.model] = d.error ? { error: d.error } : d.metrics;
             setCompareResult(d, labelKind);
+            if (trainChart) trainChart.add(d);
           }
         });
         es.addEventListener('leaderboard_done', (e) => {
           const d = safeJSON(e.data);
-          if (d) { top3Models = d.top3; markTop3(d.top3); }
+          if (d) { top3Models = d.top3; markTop3(d.top3); if (trainChart) trainChart.setTop3(d.top3); }
         });
         es.addEventListener('best_model_fit_start', (e) => {
           const d = safeJSON(e.data);
