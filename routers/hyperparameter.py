@@ -44,6 +44,13 @@ class TuneRequest(BaseModel):
     # space narrows around the best trials of the previous stage.
     stages: int = Field(1, ge=1, le=6)
     max_sample_frac: float = Field(0.5, gt=0, le=1.0)
+    # After the search: score each tuned model with k-fold CV over ALL rows, try
+    # voting/stacking ensembles of the tuned models, and evaluate a default-parameter
+    # baseline (baseline_model) for comparison.
+    full_cv: bool = True
+    cv_folds: int = Field(5, ge=2, le=10)
+    ensembles: bool = True
+    baseline_model: str | None = None
 
 
 async def _tune_generator(req: TuneRequest):
@@ -80,6 +87,10 @@ async def _tune_generator(req: TuneRequest):
         "fold": req.fold,
         "stages": req.stages,
         "max_sample_frac": req.max_sample_frac,
+        "full_cv": req.full_cv,
+        "cv_folds": req.cv_folds,
+        "ensembles": req.ensembles,
+        "baseline_model": req.baseline_model,
         "models": [m.model_dump() for m in req.models],
         "models_dir": str(MODELS_DIR),
         "run_id": run_id,

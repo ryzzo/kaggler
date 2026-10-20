@@ -312,6 +312,12 @@ def main() -> None:
     top_frac: float = float(args.get("top_frac", 0.25))
     pad: float = float(args.get("pad", 0.25))
 
+    # Full-data evaluation extras (see the end of main()).
+    do_full_cv: bool = bool(args.get("full_cv", True))
+    cv_folds: int = max(2, min(10, int(args.get("cv_folds", 5))))
+    want_ensembles: bool = bool(args.get("ensembles", True))
+    baseline_model = args.get("baseline_model")  # Data Training's best model id, default params
+
     if label_kind not in ("categorical", "numeric"):
         emit("error", detail="label_kind must be 'categorical' or 'numeric'")
         return
@@ -498,6 +504,106 @@ def main() -> None:
         )
         saved.append({"model": mid, "filename": filename})
     emit("saved", saved_models=saved)
+
+    # ── Full-data evaluation extras ─────────────────────────────────────────
+    # 1. a default-hyperparameter baseline (so "tuned vs default" is comparable),
+    # 2. k-fold cross-validation over ALL rows (train + hold-out) for each tuned
+    #    model — a steadier "performance on the full dataset" than the single
+    #    hold-out split, and
+    # 3. ensembles of the tuned models (voting, stacking).
+    Xall = pd.concat([Xtr, Xte])
+    yall = pd.concat([ytr, yte])
+
+    def cv_heartbeat(_event, **kw):
+        emit("cv_progress", **kw)
+
+    def full_data_cv(key: str, make_model) -> dict:
+        t0 = time.perf_counter()
+        cv = (StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=42) if is_classification
+              else KFold(n_splits=cv_folds, shuffle=True, random_state=42))
+        scores = run_with_heartbeat(
+            lambda: cross_val_score(make_model(), Xall, yall, cv=cv, scoring=scoring, n_jobs=1),
+            key, cv_heartbeat)
+        return {"mean": round(float(scores.mean()), 4), "std": round(float(scores.std()), 4),
+                "folds": cv_folds, "scoring": scoring, "n_rows": len(Xall),
+                "elapsed_s": round(time.perf_counter() - t0, 2)}
+
+    # 1. baseline (Data Training's best model type, default hyperparameters)
+    baseline_ok = False
+    if baseline_model and baseline_model in MODEL_CLASS_MAP[label_kind]:
+        t0 = time.perf_counter()
+        emit("baseline_start", model=baseline_model)
+        try:
+            base = build_model(label_kind, baseline_model, {})
+            fit_with_progress(base, Xtr, ytr, baseline_model, emit)
+            preds = base.predict(Xte)
+            metrics = (_classification_metrics(yte, preds, base, Xte) if is_classification
+                       else _regression_metrics(yte, preds))
+            baseline_ok = True
+            emit("baseline_result", model=baseline_model, metrics=metrics,
+                 elapsed_s=round(time.perf_counter() - t0, 2))
+        except Exception as exc:
+            emit("baseline_result", model=baseline_model, error=str(exc),
+                 elapsed_s=round(time.perf_counter() - t0, 2))
+
+    # 2. full-data cross-validation
+    if do_full_cv:
+        cv_targets = [(mid, False, (lambda mid=mid: build_model(label_kind, mid, studies[mid].best_params)))
+                      for mid in fitted]
+        if baseline_ok:
+            cv_targets.append((baseline_model, True, lambda: build_model(label_kind, baseline_model, {})))
+        for key, is_base, make in cv_targets:
+            emit("full_cv_start", model=key, baseline=is_base, folds=cv_folds)
+            try:
+                emit("full_cv_result", model=key, baseline=is_base, **full_data_cv(key, make))
+            except Exception as exc:
+                emit("full_cv_result", model=key, baseline=is_base, error=str(exc))
+
+    # 3. ensembles of the tuned models
+    if want_ensembles and len(fitted) >= 2:
+        member_ids = list(fitted)
+
+        def make_ensemble(kind: str):
+            members = [(mid, build_model(label_kind, mid, studies[mid].best_params)) for mid in member_ids]
+            if is_classification:
+                from sklearn.ensemble import StackingClassifier, VotingClassifier
+                from sklearn.linear_model import LogisticRegression
+                if kind == "ens_vote":
+                    soft = all(hasattr(m, "predict_proba") for _, m in members)
+                    return VotingClassifier(members, voting="soft" if soft else "hard")
+                return StackingClassifier(members, final_estimator=LogisticRegression(max_iter=1000), cv=3)
+            from sklearn.ensemble import StackingRegressor, VotingRegressor
+            from sklearn.linear_model import RidgeCV
+            if kind == "ens_vote":
+                return VotingRegressor(members)
+            return StackingRegressor(members, final_estimator=RidgeCV(), cv=3)
+
+        for kind in ("ens_vote", "ens_stack"):
+            t0 = time.perf_counter()
+            emit("ensemble_start", ensemble=kind, members=member_ids)
+            try:
+                ens = make_ensemble(kind)
+                run_with_heartbeat(lambda: ens.fit(Xtr, ytr), kind, emit)
+                preds = ens.predict(Xte)
+                metrics = (_classification_metrics(yte, preds, ens, Xte) if is_classification
+                           else _regression_metrics(yte, preds))
+                filename = f"{run_id}__ensemble_{kind}.joblib"
+                joblib.dump({"model": ens, "model_id": kind, "members": member_ids, "best_params": {}},
+                            models_dir / filename)
+                emit("ensemble_result", ensemble=kind, members=member_ids, metrics=metrics,
+                     filename=filename, elapsed_s=round(time.perf_counter() - t0, 2),
+                     voting=getattr(ens, "voting", None))
+            except Exception as exc:
+                emit("ensemble_result", ensemble=kind, members=member_ids, error=str(exc),
+                     elapsed_s=round(time.perf_counter() - t0, 2))
+                continue
+            # Stacking already cross-validates internally; a CV-of-a-CV is too slow to be useful.
+            if do_full_cv and kind == "ens_vote":
+                emit("full_cv_start", model=kind, baseline=False, folds=cv_folds)
+                try:
+                    emit("full_cv_result", model=kind, baseline=False, **full_data_cv(kind, lambda: make_ensemble(kind)))
+                except Exception as exc:
+                    emit("full_cv_result", model=kind, baseline=False, error=str(exc))
 
     emit("done")
 

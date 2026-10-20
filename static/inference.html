@@ -286,7 +286,7 @@
         lr: 'Linear/Logistic Regression', knn: 'KNN', nb: 'Naive Bayes', dt: 'Decision Tree',
         svm: 'SVM', ridge: 'Ridge', rf: 'Random Forest', qda: 'QDA', ada: 'AdaBoost',
         gbc: 'Gradient Boosting', gbr: 'Gradient Boosting', lda: 'LDA', et: 'Extra Trees',
-        dummy: 'Dummy (baseline)', lasso: 'Lasso', en: 'Elastic Net', huber: 'Huber',
+        dummy: 'Dummy (baseline)', ens_vote: 'Ensemble · voting', ens_stack: 'Ensemble · stacking', lasso: 'Lasso', en: 'Elastic Net', huber: 'Huber',
       }[name] || name;
     }
 
@@ -301,15 +301,87 @@
       return `Fitting ${label}: still working — ${d.elapsed_s}s elapsed…`;
     }
 
+    // Lets the user switch between every model available for this dataset:
+    // default baseline, tuned models, ensembles and the Autopilot's current best.
+    function renderModelChooser(sel) {
+      const wrap = document.createElement('div');
+      wrap.className = 'summary-card';
+      wrap.innerHTML = '<h3>Choose a model</h3>';
+      const select = document.createElement('select');
+      select.style.cssText = 'width:100%;margin-bottom:8px';
+      wrap.appendChild(select);
+      content.appendChild(wrap);
+
+      const score = (m) => {
+        if (!m) return '';
+        const k = sel.label_kind === 'categorical' ? 'Accuracy' : 'R2';
+        const v = m[k] ?? m[k.toLowerCase()] ?? Object.values(m).find(x => typeof x === 'number');
+        return typeof v === 'number' ? ` — ${k} ${v.toFixed(4)}` : '';
+      };
+      let log = [];
+      try { log = JSON.parse(sessionStorage.getItem('hyperparamExperiments') || '[]'); } catch (e) {}
+      log = log.filter(e => !e.cleanFileId || e.cleanFileId === sel.clean_file_id);
+      const options = new Map();
+      const groups = { 'Ensembles': [], 'Tuned models': [], 'Autopilot': [], 'Baseline (default parameters)': [] };
+      const add = (group, key, text, payload) => { options.set(key, payload); groups[group].push([key, text]); };
+      log.forEach(e => {
+        const cv = e.cv_full ? ` · CV ${Number(e.cv_full.mean).toFixed(4)}` : '';
+        const base = { ...e, experimentId: e.experimentId };
+        if (e.source === 'ensemble') {
+          add('Ensembles', 'e' + e.experimentId, `${MODEL_LABELS(e.model)} (run #${e.runId})${score(e.metrics)}${cv}`, base);
+        } else if (e.source === 'baseline') {
+          add('Baseline (default parameters)', 'e' + e.experimentId, `${MODEL_LABELS(e.model)}${score(e.metrics)}${cv}`, base);
+        } else {
+          add('Tuned models', 'e' + e.experimentId, `${MODEL_LABELS(e.model)} (run #${e.runId})${score(e.metrics)}${cv}`, base);
+        }
+      });
+      const render = () => {
+        select.innerHTML = '';
+        Object.entries(groups).forEach(([name, items]) => {
+          if (!items.length) return;
+          const og = document.createElement('optgroup'); og.label = name;
+          items.forEach(([key, text]) => {
+            const o = document.createElement('option'); o.value = key; o.textContent = text;
+            if (options.get(key).experimentId === sel.experimentId) o.selected = true;
+            og.appendChild(o);
+          });
+          select.appendChild(og);
+        });
+      };
+      render();
+      fetch('/auto/best?clean_file_id=' + encodeURIComponent(sel.clean_file_id)).then(r => r.ok ? r.json() : null).then(b => {
+        if (!b) return;
+        add('Autopilot', 'auto', `Autopilot best: ${MODEL_LABELS(b.model)} — hold-out ${Number(b.score).toFixed(4)}`,
+            { experimentId: 'autopilot', model: b.model, best_params: b.best_params, best_value: b.score,
+              metrics: b.metrics, filename: b.filename, source: 'autopilot' });
+        render();
+      }).catch(() => {});
+      select.addEventListener('change', () => {
+        const e = options.get(select.value);
+        if (!e) return;
+        sessionStorage.setItem('selectedInferenceModel', JSON.stringify({
+          experimentId: e.experimentId, model: e.model, best_params: e.best_params || {},
+          best_value: e.best_value ?? null, metrics: e.metrics || null, cv_full: e.cv_full || null,
+          members: e.members || null, source: e.source || 'tuned', runId: e.runId ?? null,
+          filename: e.filename || null, label: sel.label, label_kind: sel.label_kind,
+          columns: sel.columns, feature_columns: sel.feature_columns, clean_file_id: sel.clean_file_id,
+        }));
+        location.reload();
+      });
+    }
+
     function renderSelectedInferenceModel(sel) {
+      renderModelChooser(sel);
       const taskLabel = sel.label_kind === 'categorical' ? 'classification' : 'regression';
       const hasParams = sel.best_params && Object.keys(sel.best_params).length;
 
       const card = document.createElement('div');
       card.className = 'summary-card';
       card.innerHTML = `
-        <h3>Selected from Hyperparameter Search</h3>
+        <h3>Selected model</h3>
         <div class="summary-row"><span>Model</span><span>${escHtml(MODEL_LABELS(sel.model))}</span></div>
+        ${sel.members ? `<div class="summary-row"><span>Members</span><span>${escHtml(sel.members.map(MODEL_LABELS).join(', '))}</span></div>` : ''}
+        ${sel.cv_full ? `<div class="summary-row"><span>Full-data CV</span><span>${Number(sel.cv_full.mean).toFixed(4)} ± ${Number(sel.cv_full.std).toFixed(4)}</span></div>` : ''}
         <div class="summary-row"><span>Label</span><span>${escHtml(sel.label)} (${taskLabel})</span></div>
         <div class="summary-row"><span>Feature columns</span><span>${sel.feature_columns.length}</span></div>
         <div class="col-chip-row">${sel.feature_columns.map(c => `<span class="col-chip">${escHtml(c)}</span>`).join('')}</div>`;
@@ -317,7 +389,7 @@
 
       const paramsTitle = document.createElement('div');
       paramsTitle.className = 'section-title';
-      paramsTitle.textContent = 'Hyperparameters';
+      paramsTitle.textContent = sel.members ? 'Ensemble' : 'Hyperparameters';
       content.appendChild(paramsTitle);
 
       const paramsCard = document.createElement('div');
@@ -327,7 +399,7 @@
           .map(([k, v]) => `<div class="summary-row"><span>${escHtml(k)}</span><span>${escHtml(String(v))}</span></div>`)
           .join('');
       } else {
-        paramsCard.innerHTML = `<div class="summary-row"><span>Default hyperparameters (not tuned)</span></div>`;
+        paramsCard.innerHTML = `<div class="summary-row"><span>${sel.members ? 'Combines the tuned models listed above' : 'Default hyperparameters (not tuned)'}</span></div>`;
       }
       content.appendChild(paramsCard);
 

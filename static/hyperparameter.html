@@ -196,6 +196,7 @@
     function safeJSON(str) { try { return JSON.parse(str); } catch { return null; } }
 
     const MODEL_LABELS = {
+      ens_vote: 'Ensemble · voting', ens_stack: 'Ensemble · stacking',
       lr: 'Linear/Logistic Regression', knn: 'KNN', nb: 'Naive Bayes', dt: 'Decision Tree',
       svm: 'SVM', ridge: 'Ridge', rf: 'Random Forest', qda: 'QDA',
       ada: 'AdaBoost', gbc: 'Gradient Boosting', gbr: 'Gradient Boosting', lda: 'LDA', et: 'Extra Trees',
@@ -377,6 +378,10 @@
         best_params: entry.best_params,
         best_value: entry.best_value,
         metrics: entry.metrics,
+        cv_full: entry.cv_full || null,
+        members: entry.members || null,
+        source: entry.source || 'tuned',
+        runId: entry.runId ?? null,
         filename: entry.filename || null,
         label: training.label,
         label_kind: labelKind,
@@ -646,7 +651,7 @@
       // Coarse-to-fine options: stages=1 is the classic single search. With more
       // stages, "Trials" above applies per stage, the search space narrows around the
       // best trials of the previous stage, and the sample grows up to the final %.
-      const searchOpts = { stages: 1, max_sample_frac: 0.5 };
+      const searchOpts = { stages: 1, max_sample_frac: 0.5, full_cv: true, ensembles: true };
       const stageRow = document.createElement('div');
       stageRow.className = 'n-trials-row';
       const stagesInput = document.createElement('input');
@@ -664,6 +669,19 @@
       stageRow.appendChild(document.createTextNode('Final stage sample %:'));
       stageRow.appendChild(finalFracInput);
       content.appendChild(stageRow);
+
+      // After the search: score on the full dataset (k-fold CV over all rows) and try ensembles.
+      const evalRow = document.createElement('div');
+      evalRow.className = 'n-trials-row';
+      const cvBox = document.createElement('input');
+      cvBox.type = 'checkbox'; cvBox.checked = true; cvBox.style.width = 'auto';
+      cvBox.addEventListener('change', () => { searchOpts.full_cv = cvBox.checked; });
+      const ensBox = document.createElement('input');
+      ensBox.type = 'checkbox'; ensBox.checked = true; ensBox.style.width = 'auto';
+      ensBox.addEventListener('change', () => { searchOpts.ensembles = ensBox.checked; });
+      evalRow.append(cvBox, document.createTextNode('Cross-validate on the full dataset (slower)'),
+                     ensBox, document.createTextNode('Try ensembles of the tuned models'));
+      content.appendChild(evalRow);
 
       const runBtn = document.createElement('button');
       runBtn.className = 'btn';
@@ -936,11 +954,27 @@
           });
           saveExperiments();
           renderExperimentsTable(experimentsHost, training, labelKind);
+        }, () => {
+          // full-data CV / baseline scores arrived — persist and refresh the table
+          saveExperiments();
+          renderExperimentsTable(experimentsHost, training, labelKind);
         });
       });
     }
 
-    function runTune(training, labelKind, models, runBtn, resultsHost, runId, onExperimentRecorded, onModelsSaved) {
+    function renderEvalNote(host, text) {
+      let note = document.getElementById('fit-progress-note');
+      if (!note) {
+        note = document.createElement('div');
+        note.id = 'fit-progress-note';
+        note.className = 'note';
+        note.style.color = '#a5b4fc';
+        host.appendChild(note);
+      }
+      note.textContent = text;
+    }
+
+    function runTune(training, labelKind, models, runBtn, resultsHost, runId, onExperimentRecorded, onModelsSaved, onExperimentsChanged = () => {}) {
       runBtn.disabled = true;
       runBtn.textContent = 'Running…';
       resultsHost.innerHTML = '';
@@ -948,6 +982,7 @@
       const modelsById = Object.fromEntries(models.map(m => [m.model_id, m]));
       const tuneCharts = {}; // model_id -> live trial chart
       const stageLabels = {}; // model_id -> "Stage 2/3 (...) · " prefix for the progress line
+      const recorded = {}; // model_id / ensemble id -> this run's experiment entry
       const pendingSearch = {}; // model_id -> { best_value, best_params } from search_done, merged in at full_refit_result
 
       function done() {
@@ -976,6 +1011,9 @@
               fold: 5,
               stages: (runBtn._searchOpts || {}).stages || 1,
               max_sample_frac: (runBtn._searchOpts || {}).max_sample_frac || 0.5,
+              full_cv: (runBtn._searchOpts || {}).full_cv !== false,
+              ensembles: (runBtn._searchOpts || {}).ensembles !== false,
+              baseline_model: (training.top3 || [])[0] || null,
             }),
           });
           if (!init.ok) {
@@ -1050,7 +1088,7 @@
             renderFullRefitResult(d.model, d, labelKind);
             const search = pendingSearch[d.model];
             const cfg = modelsById[d.model];
-            onExperimentRecorded({
+            const entry = {
               experimentId: nextExperimentId++,
               runId,
               model: d.model,
@@ -1061,8 +1099,59 @@
               metrics: d.error ? null : d.metrics,
               error: d.error || null,
               timestamp: new Date().toISOString(),
-            });
+            };
+            onExperimentRecorded(entry);
+            recorded[d.model] = entry;
           }
+        });
+
+        // ── Full-dataset evaluation: baseline, k-fold CV over all rows, ensembles ──
+        const baselineEntry = (model) => experimentLog.find(e =>
+          e.source === 'baseline' && e.cleanFileId === training.clean_file_id && e.model === model);
+        const nameOf = (m) => MODEL_LABELS[m] || m;
+        es.addEventListener('baseline_start', (e) => {
+          const d = safeJSON(e.data);
+          if (d) renderEvalNote(resultsHost, `Evaluating ${nameOf(d.model)} with default hyperparameters for comparison…`);
+        });
+        es.addEventListener('baseline_result', (e) => {
+          const d = safeJSON(e.data);
+          const be = d && !d.error ? baselineEntry(d.model) : null;
+          if (be) { be.metrics = d.metrics; onExperimentsChanged(); }
+        });
+        es.addEventListener('full_cv_start', (e) => {
+          const d = safeJSON(e.data);
+          const entry = d && (d.baseline ? baselineEntry(d.model) : recorded[d.model]);
+          if (entry) { entry.cv_pending = true; onExperimentsChanged(); }
+        });
+        es.addEventListener('cv_progress', (e) => {
+          const d = safeJSON(e.data);
+          if (d) renderEvalNote(resultsHost, `Cross-validating ${nameOf(d.model)} on the full dataset… ${d.elapsed_s}s elapsed`);
+        });
+        es.addEventListener('full_cv_result', (e) => {
+          const d = safeJSON(e.data);
+          const entry = d && (d.baseline ? baselineEntry(d.model) : recorded[d.model]);
+          if (!entry) return;
+          entry.cv_pending = false;
+          entry.cv_full = d.error ? null : { mean: d.mean, std: d.std, folds: d.folds, n_rows: d.n_rows };
+          onExperimentsChanged();
+        });
+        es.addEventListener('ensemble_start', (e) => {
+          const d = safeJSON(e.data);
+          if (d) renderEvalNote(resultsHost, `Building ${nameOf(d.ensemble)} from ${d.members.map(nameOf).join(', ')}…`);
+        });
+        es.addEventListener('ensemble_result', (e) => {
+          const d = safeJSON(e.data);
+          if (!d) return;
+          if (d.error) { renderEvalNote(resultsHost, `${nameOf(d.ensemble)} failed: ${d.error}`); return; }
+          renderFullRefitResult(d.ensemble, { metrics: d.metrics, elapsed_s: d.elapsed_s }, labelKind);
+          const entry = {
+            experimentId: nextExperimentId++, runId, source: 'ensemble',
+            model: d.ensemble, members: d.members, n_trials: null, search_space: {},
+            best_value: null, best_params: {}, metrics: d.metrics, error: null,
+            filename: d.filename, timestamp: new Date().toISOString(),
+          };
+          onExperimentRecorded(entry);
+          recorded[d.ensemble] = entry;
         });
         es.addEventListener('saved', (e) => {
           const d = safeJSON(e.data);
@@ -1265,8 +1354,8 @@
       const card = document.createElement('div');
       card.className = 'summary-card';
       card.innerHTML = `<div class="note" style="margin-bottom:12px">
-        Saved to <code>models/</code> on the server using this environment's own scikit-learn/LightGBM/CatBoost
-        versions — not wired into the Inference page yet, kept here for the record.
+        Saved to <code>models/</code> on the server. Every saved model — tuned models and ensembles —
+        can be picked on the Inference page.
       </div>`;
       savedModels.forEach(s => {
         card.innerHTML += `<div class="summary-row">
@@ -1306,7 +1395,7 @@
       const table = document.createElement('table');
       table.className = 'model-table';
       table.innerHTML = `<thead><tr>
-        <th>Run</th><th>Model</th><th>Trials</th><th>Best (sample)</th><th>Full dataset ${rankKey}</th><th>Details</th><th>Inference</th>
+        <th>Run</th><th>Model</th><th>Trials</th><th>Best (sample)</th><th>Hold-out ${rankKey}</th><th>Full-data CV ${rankKey}</th><th>Details</th><th>Inference</th>
       </tr></thead>`;
       const tbody = document.createElement('tbody');
 
@@ -1316,10 +1405,15 @@
 
         const bestSample = entry.best_value != null ? entry.best_value : '—';
         const fullScore = entry.metrics ? (entry.metrics[rankKey] ?? '—') : '—';
+        const cvCell = entry.cv_pending ? 'computing…'
+          : entry.cv_full ? `${Number(entry.cv_full.mean).toFixed(4)} ± ${Number(entry.cv_full.std).toFixed(4)}`
+          : '—';
 
         const detailsCell = document.createElement('td');
         if (entry.error) {
           detailsCell.innerHTML = `<span class="metric-error">${escHtml(entry.error)}</span>`;
+        } else if (entry.source === 'ensemble') {
+          detailsCell.innerHTML = `<span class="note" style="margin:0">Members: ${escHtml((entry.members || []).map(m => MODEL_LABELS[m] || m).join(', '))}</span>`;
         } else if (entry.best_params && Object.keys(entry.best_params).length) {
           const details = document.createElement('details');
           details.className = 'params';
@@ -1353,7 +1447,8 @@
           <td class="model-name">${MODEL_LABELS[entry.model]||entry.model}</td>
           <td>${entry.n_trials ?? '—'}</td>
           <td>${bestSample}</td>
-          <td>${fullScore}</td>`;
+          <td>${fullScore}</td>
+          <td>${cvCell}</td>`;
         tr.appendChild(detailsCell);
         tr.appendChild(actionCell);
         tbody.appendChild(tr);

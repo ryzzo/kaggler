@@ -137,6 +137,16 @@ Every slow fit reports progress: real per-iteration counts for LightGBM/CatBoost
 `static/progress-charts.js` (Plotly) draws progress as it happens, from the same SSE events the workers already emit:
 - **Data Training:** a live leaderboard — models ranked by score as each finishes, top 3 highlighted at the end.
 - **Hyperparameter Search:** per model, every trial as a dot plus the best-so-far line, with coarse→fine stage boundaries marked.
+
+#### After the search: full-data scores and ensembles
+
+When a search finishes, the worker also (all optional via checkboxes on the page):
+
+- evaluates the **baseline** (Data Training's best model, default parameters) so the baseline row has scores;
+- runs **k-fold cross-validation over all rows** for every tuned model and the baseline — shown as *Full-data CV* (mean ± std) next to the single *Hold-out* score in the experiments table;
+- builds a **voting** and a **stacking** ensemble of the tuned models, scores them on the hold-out, and saves them to `models/`. The voting ensemble also gets full-data CV (stacking already cross-validates internally, so it's skipped).
+
+The Inference page has a **Choose a model** dropdown listing the baseline, every tuned model, the ensembles and the Autopilot's current best.
 - **Autopilot:** headline numbers (best score, rounds completed, current round, time since last improvement), *best hold-out score over time* with rounds shaded, *current-round search progress* per model, and *hold-out score by round* per model (axis labelled with complexity level and share of data). A data table sits under the last chart.
 - Autopilot's history (`GET /auto/history`) is stored in its state file, so the charts rebuild after a page reload or restart.
 - A model keeps the same colour on every chart and page (validated categorical palette, first 8 models; the rest are grey).

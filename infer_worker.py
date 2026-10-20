@@ -71,6 +71,9 @@ def main() -> None:
         emit("loading_saved_model", model=model_id)
         bundle = joblib.load(model_path)
         model = bundle["model"]
+    elif model_id.startswith("ens_"):
+        emit("error", detail="The saved ensemble file is missing on the server — re-run the hyperparameter search to rebuild it.")
+        return
     else:
         emit("fitting_start", model=model_id)
         _load_model_classes()
