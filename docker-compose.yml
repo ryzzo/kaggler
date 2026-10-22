@@ -4,6 +4,7 @@ services:
       context: .
       args:
         INSTALL_PYTABKIT: ${INSTALL_PYTABKIT:-0}
+        TORCH_INDEX: ${TORCH_INDEX:-https://download.pytorch.org/whl/cpu}
     image: kaggler:latest
     ports:
       - "8000:8000"
