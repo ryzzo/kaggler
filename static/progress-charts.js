@@ -202,13 +202,41 @@
     opts = opts || {};
     const scoreLabel = opts.scoreLabel || 'Score';
     const color = colorFor(opts.model || 'model');
-    const st = { x: [], y: [], bx: [], by: [], failed: 0, stages: [], perStage: null, n: 0 };
+    const st = { x: [], y: [], bx: [], by: [], failed: 0, stages: [], perStage: null, n: 0, trials: [], current: '' };
 
     const c = card(host, 'Search progress — live',
       'Each dot is one trial (cross-validated); the line is the best score found so far');
     const plot = el('div'); plot.style.height = '260px'; c.appendChild(plot);
     const cap = el('div', 'pc-cap'); c.appendChild(cap);
+    const cur = el('div', 'pc-cap'); cur.style.color = '#a5b4fc'; c.appendChild(cur);
     if (!window.Plotly) unavailable(c);
+
+    // Parameter explorer: score against one hyperparameter's value, coloured by trial
+    // order (light -> late), so you can see which settings the search is converging on.
+    const exp = el('div'); exp.style.marginTop = '10px';
+    const expHead = el('div', 'pc-sub', 'Parameter explorer — score vs. value of one hyperparameter ');
+    const sel = document.createElement('select');
+    sel.style.cssText = 'background:#0b1220;color:#cbd5e1;border:1px solid #334155;border-radius:6px;font-size:.74rem;padding:2px 6px';
+    expHead.appendChild(sel); exp.appendChild(expHead);
+    const expPlot = el('div'); expPlot.style.height = '210px'; exp.appendChild(expPlot);
+    c.appendChild(exp);
+    const known = new Set();
+    const LE = live(expPlot, () => {
+      const p = sel.value; if (!p) return null;
+      const pts = st.trials.filter(t => t.params && t.params[p] != null && t.value != null);
+      const numeric = pts.every(t => typeof t.params[p] === 'number');
+      return {
+        data: [{
+          type: 'scatter', mode: 'markers', x: pts.map(t => t.params[p]), y: pts.map(t => t.value),
+          marker: { size: 8, color: pts.map(t => t.trial), colorscale: [[0, '#334155'], [1, color]], line: { color: T.surface, width: 1 } },
+          text: pts.map(t => 'trial ' + t.trial), hovertemplate: '%{text}<br>' + p + ' = %{x}<br>score %{y:.4f}<extra></extra>',
+        }],
+        layout: layout({ margin: { l: 56, r: 24, t: 8, b: 44 }, hovermode: 'closest',
+          xaxis: { title: { text: p }, type: numeric && pts.length && pts.every(t => t.params[p] > 0) && (Math.max(...pts.map(t => t.params[p])) / Math.min(...pts.map(t => t.params[p]))) > 100 ? 'log' : undefined },
+          yaxis: { title: { text: scoreLabel }, range: yRange(pts.map(t => t.value), 0.05) } }),
+      };
+    });
+    sel.addEventListener('change', () => LE.redraw());
 
     const L = live(plot, () => {
       const lastX = st.bx.length ? st.bx[st.bx.length - 1] : null;
@@ -247,6 +275,7 @@
     }
 
     return {
+      setCurrent(text) { cur.textContent = text || ''; },
       setPerStage(n) { st.perStage = n; },
       markStage(d) {
         if (!st.perStage) return;
@@ -260,7 +289,14 @@
         const bad = d.value == null || d.value <= -1e8 || (opts.classification && d.value === 0);
         if (bad) st.failed += 1; else { st.x.push(x); st.y.push(d.value); }
         st.bx.push(x); st.by.push(d.best_value);
-        caption(); L.redraw();
+        if (!bad && d.params) {
+          st.trials.push({ trial: x, value: d.value, params: d.params });
+          Object.keys(d.params).forEach(k => {
+            if (!known.has(k)) { known.add(k); const o = document.createElement('option'); o.value = o.textContent = k; sel.appendChild(o); }
+          });
+        }
+        cur.textContent = '';
+        caption(); L.redraw(); LE.redraw();
       },
     };
   }

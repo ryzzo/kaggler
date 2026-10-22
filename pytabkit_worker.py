@@ -87,8 +87,12 @@ def main() -> None:
         sample = df.sample(frac=sample_frac, random_state=42)
     emit("sample_ready", n_total=len(df), n_sample=len(sample), sample_frac=sample_frac)
 
-    device = "cuda" if cuda_available() else "cpu"
-    emit("gpu_info", **gpu_describe(), engine="pytabkit", device=device)
+    import torch
+    torch_cuda = torch.cuda.is_available()
+    device = "cuda" if (cuda_available() and torch_cuda) else "cpu"
+    emit("gpu_info", **gpu_describe(), engine="pytabkit", device=device, torch_cuda=torch_cuda,
+         warning=("NVIDIA GPU detected but this PyTorch build has no CUDA — rebuild with a CUDA TORCH_INDEX"
+                  if cuda_available() and not torch_cuda else None))
 
     le = None
     def target(frame):
@@ -110,15 +114,21 @@ def main() -> None:
     board = []
     for idx, name in enumerate(names):
         t0 = time.perf_counter()
+        emit("model_start", model=name, index=idx, total=len(names))
         try:
             per_fold = []
-            for tr, te in folds.split(X, y):
+            for k, (tr, te) in enumerate(folds.split(X, y)):
+                tf = time.perf_counter()
                 prep = TabularPrep()
                 est = _make(name, kind, device)
                 est.fit(prep.fit_transform(X.iloc[tr]), y[tr])
                 Xte = prep.transform(X.iloc[te])
                 proba = est.predict_proba(Xte) if kind == "categorical" else None
                 per_fold.append(_fold_metrics(kind, y[te], est.predict(Xte), proba, n_classes))
+                emit("fold_result", model=name, fold=k + 1, folds=5,
+                     metrics={m: round(v, 4) for m, v in per_fold[-1].items()},
+                     running={m: round(float(np.mean([f[m] for f in per_fold])), 4) for m in per_fold[-1]},
+                     elapsed_s=round(time.perf_counter() - tf, 2))
             mean = {k: float(np.mean([f[k] for f in per_fold])) for k in per_fold[0]}
             row = {"model": name, "metrics": mean, "elapsed_s": round(time.perf_counter() - t0, 2)}
             board.append(row)

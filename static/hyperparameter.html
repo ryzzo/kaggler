@@ -6,6 +6,7 @@
   <title>Hyperparameter Search</title>
   <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
   <script src="/static/progress-charts.js"></script>
+  <script src="/static/live-monitor.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -979,6 +980,8 @@
       runBtn.textContent = 'Running…';
       resultsHost.innerHTML = '';
       let es = null;
+      const monitor = window.LiveMonitor ? LiveMonitor.mount(resultsHost, { title: 'Live hardware & activity' }) : null;
+      if (monitor) monitor.start();
       const modelsById = Object.fromEntries(models.map(m => [m.model_id, m]));
       const tuneCharts = {}; // model_id -> live trial chart
       const stageLabels = {}; // model_id -> "Stage 2/3 (...) · " prefix for the progress line
@@ -987,12 +990,13 @@
 
       function done() {
         if (es) { es.close(); es = null; }
+        if (monitor) monitor.stop();
         runBtn.disabled = false;
         runBtn.textContent = 'Run hyperparameter search';
       }
       function showError(msg) {
         done();
-        resultsHost.innerHTML += `<div id="error-msg" style="padding:20px 0">${escHtml(msg)}</div>`;
+        resultsHost.insertAdjacentHTML('beforeend', `<div id="error-msg" style="padding:20px 0">${escHtml(msg)}</div>`);
       }
 
       (async () => {
@@ -1028,6 +1032,19 @@
         }
 
         es = new EventSource(`/tune/stream/${jobId}`);
+        if (monitor) monitor.attach(es);
+        // Live "what is the search doing right now" line under each trial chart
+        es.addEventListener('trial_start', (e) => {
+          const d = safeJSON(e.data);
+          if (d && tuneCharts[d.model]) tuneCharts[d.model].setCurrent(`Trial ${d.trial + 1} running · ${Object.entries(d.params).map(([k, v]) => `${k}=${typeof v === 'number' ? +v.toPrecision(4) : v}`).join(', ')}`);
+        });
+        es.addEventListener('fold_result', (e) => {
+          const d = safeJSON(e.data);
+          if (d && tuneCharts[d.model]) {
+            const r = Object.values(d.running || {})[0];
+            tuneCharts[d.model].setCurrent(`Trial ${d.trial + 1} · fold ${d.fold}/${d.folds} done · running mean ${r != null ? r.toFixed(4) : '—'}`);
+          }
+        });
 
         es.addEventListener('error', (e) => {
           const d = safeJSON(e.data);

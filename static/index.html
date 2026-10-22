@@ -126,6 +126,16 @@
     }
     .main-nav a:hover { color: #cbd5e1; }
     .main-nav a.active { color: #a5b4fc; border-bottom-color: #6366f1; }
+    #compute-panel { width: 100%; max-width: 600px; margin-bottom: 24px; background: #1e2430;
+      border: 1px solid #2d3748; border-radius: 12px; padding: 16px 20px; }
+    #compute-panel h2 { font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; color: #94a3b8; margin-bottom: 10px; }
+    .cp-row { display: flex; gap: 10px; align-items: baseline; font-size: .85rem; margin-bottom: 6px; }
+    .cp-row .k { color: #64748b; width: 52px; flex-shrink: 0; font-weight: 600; }
+    .cp-row .v { color: #cbd5e1; }
+    .cp-chip { display: inline-block; font-size: .72rem; font-weight: 600; padding: 2px 9px; border-radius: 999px; margin: 4px 6px 0 0; }
+    .cp-on  { background: #064e3b; color: #6ee7b7; }
+    .cp-off { background: #2a2f3a; color: #94a3b8; }
+    .cp-warn { background: #3b2a1a; color: #fbbf24; }
   </style>
 </head>
 <body>
@@ -178,6 +188,11 @@
   <h1>File Processor</h1>
   <p class="subtitle">Drop files here or browse — CSV, images, and text supported.</p>
 
+  <div id="compute-panel" hidden>
+    <h2>Compute available</h2>
+    <div id="compute-body"></div>
+  </div>
+
   <div id="drop-zone">
     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
@@ -187,6 +202,30 @@
     <p style="margin-top:8px;font-size:.8rem;color:#475569;">CSV · PNG · JPG · GIF · TXT · MD and more</p>
     <input type="file" id="file-input" multiple />
   </div>
+
+  <script>
+    (async function(){
+      const panel = document.getElementById('compute-panel'), body = document.getElementById('compute-body');
+      const esc = t => String(t).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+      try {
+        const d = await fetch('/compute').then(r => r.json());
+        const gb = mb => (mb / 1024).toFixed(mb >= 10240 ? 0 : 1) + ' GB';
+        let h = `<div class="cp-row"><span class="k">CPU</span><span class="v">${esc(d.cpu.model)} · ${d.cpu.usable_cores} cores${d.ram_total_mb ? ' · ' + gb(d.ram_total_mb) + ' RAM' : ''}</span></div>`;
+        if (d.gpus.length) {
+          h += d.gpus.map(g => `<div class="cp-row"><span class="k">GPU</span><span class="v">${esc(g.name)} · ${gb(g.vram_mb)} VRAM · driver ${esc(g.driver)}</span></div>`).join('');
+        } else {
+          h += `<div class="cp-row"><span class="k">GPU</span><span class="v" style="color:#64748b">No NVIDIA GPU detected — training runs on CPU</span></div>`;
+        }
+        if (d.gpu_disabled_by_env) h += `<div class="cp-row"><span class="k"></span><span class="v" style="color:#fbbf24">GPU disabled by KAGGLER_USE_GPU</span></div>`;
+        h += '<div style="margin-top:6px">' + d.engines.map(e => {
+          const cls = e.gpu ? 'cp-on' : (e.note ? 'cp-warn' : 'cp-off');
+          return `<span class="cp-chip ${cls}" title="${esc(e.note || '')}">${esc(e.name)}: ${e.gpu ? 'GPU' : 'CPU'}${e.note ? ' ⚠' : ''}</span>`;
+        }).join('') + '</div>';
+        h += `<div style="margin-top:8px;font-size:.75rem;color:#64748b">Scouting engine: ${esc(d.scout_engine)} · GPU is used automatically wherever available.</div>`;
+        body.innerHTML = h; panel.hidden = false;
+      } catch (e) { /* panel stays hidden */ }
+    })();
+  </script>
 
   <div id="results"></div>
 

@@ -6,6 +6,7 @@
   <title>Data Training</title>
   <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
   <script src="/static/progress-charts.js"></script>
+  <script src="/static/live-monitor.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -281,15 +282,18 @@
       runBtn.textContent = 'Running…';
       resultsHost.innerHTML = '';
       let es = null;
+      const monitor = window.LiveMonitor ? LiveMonitor.mount(resultsHost, { title: 'Live hardware & activity' }) : null;
+      if (monitor) monitor.start();
 
       function done() {
         if (es) { es.close(); es = null; }
+        if (monitor) monitor.stop();
         runBtn.disabled = false;
         runBtn.textContent = 'Run comparison';
       }
       function showError(msg) {
         done();
-        resultsHost.innerHTML += `<div id="error-msg" style="padding:20px 0">${escHtml(msg)}</div>`;
+        resultsHost.insertAdjacentHTML('beforeend', `<div id="error-msg" style="padding:20px 0">${escHtml(msg)}</div>`);
       }
 
       (async () => {
@@ -318,6 +322,7 @@
         }
 
         es = new EventSource(`/train/stream/${jobId}`);
+        if (monitor) monitor.attach(es);
         let top3Models = [];
         let trainChart = null;
         let compareResults = {};

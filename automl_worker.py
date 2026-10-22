@@ -122,6 +122,7 @@ def main() -> None:
     leaderboard = []
     for idx, mid in enumerate(model_ids):
         t0 = time.perf_counter()
+        emit("model_start", model=mid, index=idx, total=len(model_ids))
         try:
             exp.create_model(mid, fold=5, verbose=False)
             metrics = _mean_row(exp.pull())

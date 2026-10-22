@@ -330,6 +330,8 @@ def main() -> None:
 
     import optuna
     import optuna.visualization as vis
+    from sklearn.base import clone
+    from sklearn.metrics import get_scorer
     from sklearn.model_selection import KFold, StratifiedKFold, cross_val_score
 
     optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -403,14 +405,28 @@ def main() -> None:
 
                 def objective(trial, mid=mid, space=space, X=X, y=y):
                     params = suggest_params(trial, space)
+                    emit("trial_start", model=mid, trial=offset + trial.number, stage=si + 1, params=params)
                     try:
                         model = build_model(label_kind, mid, params)
                         if is_classification:
                             cv = StratifiedKFold(n_splits=fold, shuffle=True, random_state=42)
                         else:
                             cv = KFold(n_splits=fold, shuffle=True, random_state=42)
-                        scores = cross_val_score(model, X, y, cv=cv, scoring=scoring, n_jobs=1)
-                        return float(scores.mean())
+                        # Same result as cross_val_score(..., n_jobs=1), but one fold at a
+                        # time so each fold's score can be streamed to the UI as it lands.
+                        scorer = get_scorer(scoring)
+                        take = (lambda a, i: a.iloc[i]) if hasattr(X, "iloc") else (lambda a, i: a[i])
+                        fold_scores = []
+                        for k, (tr, te) in enumerate(cv.split(X, y)):
+                            tf = time.perf_counter()
+                            m = clone(model)
+                            m.fit(take(X, tr), take(y, tr))
+                            fold_scores.append(float(scorer(m, take(X, te), take(y, te))))
+                            emit("fold_result", model=mid, trial=offset + trial.number, fold=k + 1, folds=fold,
+                                 metrics={scoring: round(fold_scores[-1], 4)},
+                                 running={scoring: round(sum(fold_scores) / len(fold_scores), 4)},
+                                 elapsed_s=round(time.perf_counter() - tf, 2))
+                        return float(sum(fold_scores) / len(fold_scores))
                     except Exception:
                         return 0.0 if is_classification else -1e9
 
