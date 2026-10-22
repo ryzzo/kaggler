@@ -1,6 +1,9 @@
 services:
   kaggler:
-    build: .
+    build:
+      context: .
+      args:
+        INSTALL_PYTABKIT: ${INSTALL_PYTABKIT:-0}
     image: kaggler:latest
     ports:
       - "8000:8000"
@@ -9,6 +12,9 @@ services:
       - prepared:/app/prepared
       - models:/app/models
       - predictions:/app/predictions
+    environment:
+      # "pycaret" (default) or "pytabkit" (needs the image built with INSTALL_PYTABKIT=1)
+      KAGGLER_SCOUT_ENGINE: ${KAGGLER_SCOUT_ENGINE:-pycaret}
     # joblib/loky (used by scikit-learn and PyCaret for parallel CV) shares data through
     # /dev/shm; Docker's 64 MB default is too small for real datasets.
     shm_size: "1gb"

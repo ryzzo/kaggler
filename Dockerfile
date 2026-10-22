@@ -23,6 +23,20 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv venv .venv-automl --python /usr/local/bin/python3.11 \
     && uv pip install --python .venv-automl/bin/python -r requirements-automl.txt
 
+# Experiment (branch experiment/pytabkit): a third, isolated venv for pytabkit_worker.py.
+# Opt-in, because torch makes it large. TORCH_INDEX picks the build: the CPU wheels by
+# default; use https://download.pytorch.org/whl/cu124 (or similar) for a GPU image.
+ARG INSTALL_PYTABKIT=0
+ARG TORCH_INDEX=https://download.pytorch.org/whl/cpu
+COPY requirements-pytabkit.txt .
+RUN --mount=type=cache,target=/root/.cache/uv \
+    if [ "$INSTALL_PYTABKIT" = "1" ]; then \
+        uv venv .venv-pytabkit --python /usr/local/bin/python3.11 \
+        && uv pip install --python .venv-pytabkit/bin/python \
+             --extra-index-url "$TORCH_INDEX" --index-strategy unsafe-best-match \
+             -r requirements-pytabkit.txt; \
+    fi
+
 COPY requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv venv .venv --python /usr/local/bin/python3.11 \

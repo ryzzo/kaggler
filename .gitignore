@@ -3,6 +3,8 @@ __pycache__/
 *.py[cod]
 *.pyo
 .venv/
+.venv-automl/
+.venv-pytabkit/
 
 # Uploads
 uploads/
