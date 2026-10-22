@@ -1,6 +1,7 @@
 """Shared state and helpers used across routers: storage locations, the
 in-memory analysis cache, and small utilities with no natural single owner."""
 import json
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,12 @@ PREDICTIONS_DIR.mkdir(exist_ok=True)
 # its own venv and is only ever invoked as a subprocess (see automl_worker.py).
 AUTOML_VENV_PYTHON = Path(".venv-automl/bin/python")
 AUTOML_WORKER_SCRIPT = Path("automl_worker.py")
+# Model-scouting engine for /train: "pycaret" (default) or "pytabkit" (experiment).
+# pytabkit runs in its own venv because it needs torch — see requirements-pytabkit.txt.
+SCOUT_ENGINE = os.environ.get("KAGGLER_SCOUT_ENGINE", "pycaret").strip().lower()
+if SCOUT_ENGINE == "pytabkit":
+    AUTOML_VENV_PYTHON = Path(".venv-pytabkit/bin/python")
+    AUTOML_WORKER_SCRIPT = Path("pytabkit_worker.py")
 TUNE_WORKER_SCRIPT = Path("tune_worker.py")
 INFER_WORKER_SCRIPT = Path("infer_worker.py")
 AUTOTUNE_WORKER_SCRIPT = Path("autotune_worker.py")

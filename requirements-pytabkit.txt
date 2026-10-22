@@ -1,0 +1,10 @@
+# Isolated env for pytabkit_worker.py (experiment/pytabkit). Provision with:
+#   uv venv .venv-pytabkit --python 3.11
+#   uv pip install --python .venv-pytabkit/bin/python -r requirements-pytabkit.txt
+# For a CUDA torch build, install torch from the matching PyTorch index first.
+pytabkit[models]>=1.7
+torch
+pandas
+numpy
+scikit-learn
+joblib
